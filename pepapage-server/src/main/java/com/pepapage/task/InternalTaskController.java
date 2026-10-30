@@ -34,7 +34,8 @@ public class InternalTaskController {
     private final ProcessTaskMapper taskMapper;
     private final BookProjectMapper projectMapper;
 
-    public record TaskDetail(ProcessTask task, BookProject project, Long userId) {
+    /** ossPrefix = users/{uid}/book-projects/{pid}/（以 / 结尾）。 */
+    public record TaskDetail(ProcessTask task, BookProject project, Long userId, String ossPrefix) {
     }
 
     /**
@@ -61,7 +62,8 @@ public class InternalTaskController {
         if (project == null) {
             throw BizException.notFound("项目");
         }
-        return Result.ok(new TaskDetail(task, project, project.getUserId()));
+        return Result.ok(new TaskDetail(task, project, project.getUserId(),
+                com.pepapage.storage.StorageKeys.projectPrefix(project.getUserId(), project.getId())));
     }
 
     @PostMapping("/{taskId}/progress")

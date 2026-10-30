@@ -63,3 +63,19 @@ CREATE TABLE IF NOT EXISTS process_task (
     KEY idx_project (project_id),
     KEY idx_user_status (user_id, status)
 ) COMMENT '处理任务';
+
+CREATE TABLE IF NOT EXISTS book_export (
+    id          BIGINT       NOT NULL PRIMARY KEY,
+    user_id     BIGINT       NOT NULL,
+    project_id  BIGINT       NOT NULL,
+    task_id     BIGINT       NULL,
+    type        VARCHAR(16)  NOT NULL COMMENT 'oid_zip / pdf',
+    status      VARCHAR(16)  NOT NULL COMMENT 'queued / running / succeeded / failed',
+    progress    INT          NOT NULL DEFAULT 0,
+    error       VARCHAR(1000) NULL,
+    file_name   VARCHAR(512) NULL COMMENT '导出文件 OSS key',
+    created_at  DATETIME     NOT NULL,
+    updated_at  DATETIME     NOT NULL,
+    KEY idx_project (project_id),
+    KEY idx_user (user_id)
+) COMMENT '点读导出任务';

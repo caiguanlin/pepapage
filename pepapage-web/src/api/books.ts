@@ -1,5 +1,5 @@
-import { api } from './client'
-import type { AudioMode, BookFolder, BookProject, UploadPolicy } from './types'
+import { api, ApiError, tokenStore } from './client'
+import type { AudioMode, BookFolder, BookProject, CoursewareExportResult, UploadPolicy } from './types'
 
 export const folderApi = {
   list: () => api<BookFolder[]>('/book-folders'),
@@ -41,10 +41,49 @@ export const projectApi = {
     body: { sourceFileKey: string; audioFileKey?: string; audioFiles?: { fileKey: string; originalName: string }[] },
   ) => api<BookProject>(`/book-projects/${id}/submit`, { method: 'POST', body }),
   retry: (id: string) => api<BookProject>(`/book-projects/${id}/retry`, { method: 'POST' }),
+  realign: (id: string) => api<BookProject>(`/book-projects/${id}/realign`, { method: 'POST' }),
+  remove: (id: string) => api<void>(`/book-projects/${id}`, { method: 'DELETE' }),
   rename: (id: string, title: string) => api<BookProject>(`/book-projects/${id}/title`, { method: 'PUT', body: { title } }),
   move: (ids: string[], folderId: string | null) =>
     api<void>('/book-projects/move', { method: 'POST', body: { ids, folderId } }),
   batchDelete: (ids: string[]) => api<void>('/book-projects/batch-delete', { method: 'POST', body: { ids } }),
+}
+
+/** 读取文件 URL；文件不存在（404）时返回 null。 */
+export async function projectFileUrl(id: string, name: string): Promise<string | null> {
+  try {
+    const r = await api<{ url: string }>(`/book-projects/${id}/files/url?name=${encodeURIComponent(name)}`)
+    return r.url
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) return null
+    throw e
+  }
+}
+
+export const coursewareApi = {
+  export: (projectIds: string[], folderIds: string[]) =>
+    api<CoursewareExportResult>('/book-courseware/export', { method: 'POST', body: { projectIds, folderIds } }),
+  /** multipart 上传课件包，folderId 走 query（空为根目录）。 */
+  import: async (file: File, folderId: string | null): Promise<BookProject[]> => {
+    const form = new FormData()
+    form.append('file', file)
+    const headers: Record<string, string> = {}
+    const token = tokenStore.get()
+    if (token) headers.Authorization = `Bearer ${token}`
+    const q = folderId ? `?folderId=${encodeURIComponent(folderId)}` : ''
+    let res: Response
+    try {
+      res = await fetch(`/api/book-courseware/import${q}`, { method: 'POST', headers, body: form })
+    } catch {
+      throw new ApiError(0, '无法连接服务器')
+    }
+    const json = await res.json().catch(() => null)
+    if (res.status === 401) tokenStore.clear()
+    if (!res.ok || !json || json.code !== 0) {
+      throw new ApiError(res.status, json?.message ?? `导入失败（${res.status}）`)
+    }
+    return (json.data ?? []) as BookProject[]
+  },
 }
 
 export const storageApi = {

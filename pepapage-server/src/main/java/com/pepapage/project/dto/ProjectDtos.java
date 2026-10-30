@@ -26,10 +26,21 @@ public final class ProjectDtos {
             @DecimalMin(value = "0.5", message = "语速范围 0.5-1.5") @DecimalMax(value = "1.5", message = "语速范围 0.5-1.5") BigDecimal ttsSpeed) {
     }
 
-    /** kind: source（书籍 PDF）/ audio（单音频整书音频）/ multi_audio（多音频之一） */
+    /** kind: source（书籍 PDF）/ audio（单音频整书音频）/ multi_audio（多音频之一）/ custom_audio（区域自定义音频，需 boxKey） */
     public record UploadPolicyRequest(
-            @NotBlank @Pattern(regexp = "source|audio|multi_audio", message = "文件类型不正确") String kind,
-            @NotBlank(message = "文件名不能为空") String fileName) {
+            @NotBlank @Pattern(regexp = "source|audio|multi_audio|custom_audio", message = "文件类型不正确") String kind,
+            @NotBlank(message = "文件名不能为空") String fileName,
+            @Size(max = 200) String boxKey) {
+    }
+
+    public record ConfirmOcrRequest(Integer sentenceCount) {
+    }
+
+    public record CreateExportRequest(
+            @NotBlank @Pattern(regexp = "oid_zip|pdf", message = "导出类型不正确") String type) {
+    }
+
+    public record CoursewareExportRequest(List<Long> projectIds, List<Long> folderIds) {
     }
 
     public record SubmitAudioFile(@NotBlank String fileKey, @NotBlank String originalName) {

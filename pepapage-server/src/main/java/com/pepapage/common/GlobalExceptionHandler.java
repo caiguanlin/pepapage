@@ -28,6 +28,12 @@ public class GlobalExceptionHandler {
         return Result.fail(400, msg);
     }
 
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    public Result<Void> handleNotFound(Exception e, HttpServletResponse response) {
+        response.setStatus(404);
+        return Result.fail(404, "接口不存在");
+    }
+
     @ExceptionHandler(Exception.class)
     public Result<Void> handleOther(Exception e, HttpServletResponse response) {
         log.error("未处理异常", e);

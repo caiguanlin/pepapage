@@ -29,6 +29,8 @@ public class BookProjectService {
 
     /** 阶段顺序固定：ocr → audio_conversion → transcription → alignment */
     public static final List<String> STEP_KEYS = List.of("ocr", "audio_conversion", "transcription", "alignment");
+    /** 区域自定义音频单文件上限 50 MiB */
+    static final long CUSTOM_AUDIO_MAX_BYTES = 50L * 1024 * 1024;
 
     private final BookProjectMapper projectMapper;
     private final BookFolderService folderService;
@@ -91,6 +93,13 @@ public class BookProjectService {
 
     public OssService.UploadPolicy uploadPolicy(Long userId, Long id, UploadPolicyRequest req) {
         BookProject p = requireOwned(userId, id);
+        if ("custom_audio".equals(req.kind())) {
+            if (req.boxKey() == null || req.boxKey().isBlank()) {
+                throw new BizException("缺少区域 boxKey");
+            }
+            String key = StorageKeys.projectPrefix(userId, id) + StorageKeys.customAudioName(req.boxKey(), req.fileName());
+            return ossService.createUploadPolicy(key, CUSTOM_AUDIO_MAX_BYTES);
+        }
         if (!"uploading".equals(p.getStatus())) {
             throw new BizException("项目已提交，不能再上传源文件");
         }
@@ -173,6 +182,100 @@ public class BookProjectService {
         p.setProcessingError(null);
         taskService.enqueue(p, "book_full");
         return p;
+    }
+
+    /** 规格 aSe：仅 tts；确认 OCR 后进入第 3 步合成配音。 */
+    @Transactional
+    public BookProject confirmOcr(Long userId, Long id, Integer sentenceCount) {
+        BookProject p = requireOwned(userId, id);
+        if (!"tts".equals(p.getAudioMode())) {
+            throw new BizException("仅无音频（TTS）模式需要确认 OCR");
+        }
+        if ("uploading".equals(p.getStatus())) {
+            throw new BizException("项目尚未提交");
+        }
+        List<ProcessingStep> steps = ensureSteps(p);
+        ProcessingStep ocr = steps.get(0);
+        if (!"completed".equals(ocr.getStatus())) {
+            throw new BizException("OCR 尚未完成");
+        }
+        steps.get(3).setStatus("pending");
+        steps.get(3).setProgress(0);
+        p.setProcessingSteps(steps);
+        p.setOcrConfirmed(true);
+        p.setCurrentStepIndex(3);
+        p.setStatus("processing");
+        if (sentenceCount != null) {
+            putMeta(p, "sentenceCount", sentenceCount);
+        }
+        projectMapper.updateById(p);
+        clearError(p);
+        taskService.enqueue(p, "book_tts");
+        return p;
+    }
+
+    /**
+     * 规格 hse：前三步全部 completed（skipped 不算）才只重置第 3 步并投递 book_realign；否则等同全重试。
+     * 校对后重对齐（fse）同样设 ocrConfirmed=true。
+     */
+    @Transactional
+    public BookProject realign(Long userId, Long id, Integer sentenceCount) {
+        BookProject p = requireOwned(userId, id);
+        if ("uploading".equals(p.getStatus())) {
+            throw new BizException("项目尚未提交");
+        }
+        if ("processing".equals(p.getStatus())) {
+            throw new BizException("项目正在处理中");
+        }
+        List<ProcessingStep> steps = ensureSteps(p);
+        boolean firstThreeCompleted = steps.subList(0, 3).stream().allMatch(s -> "completed".equals(s.getStatus()));
+        if (sentenceCount != null) {
+            putMeta(p, "sentenceCount", sentenceCount);
+        }
+        if (!firstThreeCompleted) {
+            return fullRetry(p);
+        }
+        steps.get(3).setStatus("pending");
+        steps.get(3).setProgress(0);
+        p.setProcessingSteps(steps);
+        p.setOcrConfirmed(true);
+        p.setCurrentStepIndex(3);
+        p.setStatus("processing");
+        projectMapper.updateById(p);
+        clearError(p);
+        taskService.enqueue(p, "book_realign");
+        return p;
+    }
+
+    private BookProject fullRetry(BookProject p) {
+        p.setStatus("processing");
+        p.setCurrentStepIndex(0);
+        p.setProcessingSteps(initialSteps(p.getAudioMode()));
+        projectMapper.updateById(p);
+        clearError(p);
+        taskService.enqueue(p, "book_full");
+        return p;
+    }
+
+    private void clearError(BookProject p) {
+        projectMapper.update(Wrappers.<BookProject>lambdaUpdate()
+                .eq(BookProject::getId, p.getId())
+                .set(BookProject::getProcessingError, null));
+        p.setProcessingError(null);
+    }
+
+    private static void putMeta(BookProject p, String k, Object v) {
+        java.util.Map<String, Object> meta = p.getMetadata() == null ? new java.util.HashMap<>() : new java.util.HashMap<>(p.getMetadata());
+        meta.put(k, v);
+        p.setMetadata(meta);
+    }
+
+    private List<ProcessingStep> ensureSteps(BookProject p) {
+        List<ProcessingStep> steps = p.getProcessingSteps();
+        if (steps == null || steps.size() < 4) {
+            steps = initialSteps(p.getAudioMode());
+        }
+        return new ArrayList<>(steps);
     }
 
     public BookProject rename(Long userId, Long id, String title) {

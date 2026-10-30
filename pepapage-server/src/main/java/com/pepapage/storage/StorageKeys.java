@@ -33,6 +33,37 @@ public final class StorageKeys {
         return projectPrefix(userId, projectId) + "cover.jpg";
     }
 
+    /** 区域自定义音频：custom-audio-<sanitizedKey>-<base36Timestamp>.<ext>（相对项目目录的文件名）。 */
+    public static String customAudioName(String boxKey, String originalName) {
+        String sanitized = boxKey == null ? "box" : boxKey.replaceAll("[^A-Za-z0-9_-]", "_");
+        if (sanitized.length() > 80) {
+            sanitized = sanitized.substring(0, 80);
+        }
+        return "custom-audio-" + sanitized + "-" + Long.toString(System.currentTimeMillis(), 36)
+                + "." + extension(originalName, "mp3");
+    }
+
+    /**
+     * 校验项目内相对文件名：只允许字母数字 . _ - 与一层子目录（如 audio/xxx.mp3），禁止 .. 和绝对路径。
+     */
+    public static boolean isSafeRelativeName(String name) {
+        return name != null && !name.isBlank() && name.length() <= 255
+                && !name.contains("..") && !name.startsWith("/")
+                && name.matches("[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)?");
+    }
+
+    public static String coursewareKey(Long userId, String id) {
+        return userPrefix(userId) + "courseware/" + id + ".nexusbookpkg";
+    }
+
+    /** 课件包导入时把旧项目目录前缀替换为新前缀。 */
+    public static String rebase(String key, String newPrefix) {
+        if (key == null) {
+            return null;
+        }
+        return key.replaceFirst("^users/[^/]*/book-projects/[^/]+/", newPrefix);
+    }
+
     static String extension(String fileName, String fallback) {
         if (fileName == null) {
             return fallback;

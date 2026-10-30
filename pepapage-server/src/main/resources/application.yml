@@ -19,8 +19,8 @@ spring:
       database: 0
   servlet:
     multipart:
-      max-file-size: 20MB
-      max-request-size: 20MB
+      max-file-size: 500MB
+      max-request-size: 500MB
   jackson:
     default-property-inclusion: non_null
 

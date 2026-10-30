@@ -12,7 +12,7 @@ import time
 import redis
 from dotenv import load_dotenv
 
-from .pipeline import run_book_full
+from .pipeline import run_book_export, run_book_full, run_book_realign, run_book_tts
 from .server_client import ServerClient
 
 log = logging.getLogger("worker")
@@ -68,10 +68,22 @@ def handle(server: ServerClient, fields: dict[str, str]) -> None:
     task_id = fields.get("taskId")
     task_type = fields.get("taskType")
     log.info("开始任务 %s (%s)", task_id, task_type)
+    if task_type == "book_export":
+        export_id = fields.get("exportId")
+        if not export_id:
+            log.error("book_export 消息缺少 exportId：%s", fields)
+            return
+        # 导出只回调 /internal/exports/{id}/progress，异常在内部上报
+        run_book_export(server, export_id, fields)
+        return
     try:
         detail = server.task_detail(task_id)
         if task_type == "book_full":
             run_book_full(server, task_id, detail)
+        elif task_type == "book_realign":
+            run_book_realign(server, task_id, detail)
+        elif task_type == "book_tts":
+            run_book_tts(server, task_id, detail)
         else:
             server.report(task_id, projectStatus="failed", error=f"未知任务类型 {task_type}")
     except Exception:  # noqa: BLE001

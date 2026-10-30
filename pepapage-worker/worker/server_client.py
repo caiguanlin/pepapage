@@ -1,4 +1,4 @@
-"""调用 Spring Boot 的 /internal/tasks 接口。"""
+"""调用 Spring Boot 的 /internal 接口（X-Worker-Token 鉴权）。"""
 from __future__ import annotations
 
 from typing import Any
@@ -12,6 +12,7 @@ class ServerClient:
         self.session = requests.Session()
         self.session.headers["X-Worker-Token"] = token
 
+    # ---- 制作任务
     def task_detail(self, task_id: str) -> dict[str, Any]:
         res = self.session.get(f"{self.base_url}/internal/tasks/{task_id}", timeout=15)
         return self._unwrap(res)
@@ -19,6 +20,16 @@ class ServerClient:
     def report(self, task_id: str, **fields: Any) -> None:
         body = {k: v for k, v in fields.items() if v is not None}
         res = self.session.post(f"{self.base_url}/internal/tasks/{task_id}/progress", json=body, timeout=15)
+        self._unwrap(res)
+
+    # ---- 导出任务（只回调 exports，不回调 tasks progress，避免改项目状态）
+    def export_detail(self, export_id: str) -> dict[str, Any]:
+        res = self.session.get(f"{self.base_url}/internal/exports/{export_id}", timeout=15)
+        return self._unwrap(res)
+
+    def report_export(self, export_id: str, **fields: Any) -> None:
+        body = {k: v for k, v in fields.items() if v is not None}
+        res = self.session.post(f"{self.base_url}/internal/exports/{export_id}/progress", json=body, timeout=15)
         self._unwrap(res)
 
     @staticmethod

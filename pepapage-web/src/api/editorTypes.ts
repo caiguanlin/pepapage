@@ -1,0 +1,276 @@
+// 编辑器/校对/阅读器使用的项目文件 JSON 结构，严格按 analysis/picture-book-data-spec.md。
+// 坐标为 OCR 渲染平面像素（PDF scale=2），页码 1 起始，sentenceIndex 0 起始。
+
+export interface Box {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export interface OcrWord {
+  text: string
+  box?: Box
+}
+
+export interface OcrPage {
+  index: number
+  width?: number
+  height?: number
+  sentenceStart: number
+  sentenceCount: number
+}
+
+export interface OcrSentence {
+  id: string
+  pageIndex: number
+  sentenceIndex: number
+  text: string
+  words: OcrWord[]
+  box?: Box
+  regionIndex?: number
+  regionType?: string
+}
+
+export interface OcrBlock {
+  id: string
+  pageIndex: number
+  text: string
+  box?: Box
+  sentenceIndex: number
+  regionIndex?: number
+  regionType?: string
+}
+
+export interface BookOcr {
+  version: 1
+  sourceType: 'pdf'
+  pageCount: number
+  sentenceCount: number
+  pages: OcrPage[]
+  sentences: OcrSentence[]
+  blocks: OcrBlock[]
+}
+
+export interface ManualRange {
+  start: number
+  end: number
+  sentenceIndexes: number[]
+  text: string
+  updatedAt: string
+}
+
+export interface SentenceAlignment {
+  sentenceIndex: number
+  start: number
+  end: number
+  confidence: number
+  words?: { start: number; end: number; confidence: number }[]
+}
+
+export interface BookAlignment {
+  version: 1
+  sentenceCount: number
+  matchedCount: number
+  mode: 'word' | 'line'
+  alignments: SentenceAlignment[]
+  manualRanges?: Record<string, ManualRange>
+  excludedBoxKeys?: string[]
+  repeatCounts?: Record<string, number>
+  boxOverrides?: Record<string, Box>
+  [k: string]: unknown
+}
+
+export interface AudioMappingEntry {
+  fileName: string
+  originalName: string
+  pageIndex: number | null
+  box: Box | null
+  matchType: 'exact' | 'fuzzy' | 'asr' | null
+  sentenceIndex?: number
+}
+
+export interface BookAudioMapping {
+  version: 1
+  audioMode: 'multi' | 'tts'
+  audioAlign?: 'filename' | 'asr'
+  fileCount: number
+  pageCount: number
+  matchedCount: number
+  entries: AudioMappingEntry[]
+}
+
+export type RegionShape = 'rect' | 'ellipse'
+
+export interface CustomRegion {
+  id: string
+  /** 1 起始页码 */
+  pageIndex: number
+  x: number
+  y: number
+  width: number
+  height: number
+  shape: RegionShape
+  /** 绑定的多音频文件（multi:<fileName>） */
+  audioFileName?: string
+  createdAt?: string
+}
+
+export interface BookCustomCodes {
+  regions: CustomRegion[]
+}
+
+export interface CustomAudioEntry {
+  fileName: string
+  originalName: string
+  updatedAt: string
+}
+
+export interface BookCustomAudio {
+  version: 1
+  entries: Record<string, CustomAudioEntry>
+}
+
+export interface AuxCodeSettings {
+  enabled: boolean
+  entryCode: number
+  contentStartCode: number
+  level: 'page' | 'paragraph' | 'sentence'
+  printMode: 'integrated' | 'separate'
+  dpi: '600' | '1200'
+  dotSize: '1' | '2' | '3'
+  removeBlack: 'keep' | 'remove'
+  paper: 'A4' | 'A5' | 'B5' | 'custom'
+  customPaperMm: { w: number; h: number }
+  orientation: 'portrait' | 'landscape'
+  lineMerge: 'off' | 'normal' | 'loose'
+  boxPadding: string
+  imageCode: 'off' | 'page' | 'caption'
+  entryRect: { x: number; y: number; w: number; h: number } | null
+  entryPos: { x: number; y: number } | null
+  entryPlacement: 'first' | 'all'
+  entryCorner: 'tl' | 'tr' | 'bl' | 'br'
+  entrySizeMm: number
+  entryStyle: 'flag' | 'ticket' | 'focus' | 'dotted' | 'plain'
+  entryBoxKey: string | null
+  bindingPageNumbers: boolean
+}
+
+export const AUX_CODE_DEFAULTS: AuxCodeSettings = {
+  enabled: false,
+  entryCode: 56001,
+  contentStartCode: 25001,
+  level: 'paragraph',
+  printMode: 'integrated',
+  dpi: '600',
+  dotSize: '2',
+  removeBlack: 'keep',
+  paper: 'A4',
+  customPaperMm: { w: 210, h: 297 },
+  orientation: 'portrait',
+  lineMerge: 'normal',
+  boxPadding: '12',
+  imageCode: 'off',
+  entryRect: null,
+  entryPos: null,
+  entryPlacement: 'first',
+  entryCorner: 'tr',
+  entrySizeMm: 25,
+  entryStyle: 'focus',
+  entryBoxKey: null,
+  bindingPageNumbers: true,
+}
+
+export const BOX_PADDING_OPTIONS = ['0', '6', '12', '24', '36', '48', '60', '72', '96', '120'] as const
+export const MAX_REPEAT = 9
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
+const pick = <T extends string>(v: unknown, opts: readonly T[], d: T): T =>
+  opts.includes(v as T) ? (v as T) : d
+
+/** 按规格第 10 节归一化辅码设置（对应原版 xN）。 */
+export function normalizeAuxCode(raw: unknown): AuxCodeSettings {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Partial<AuxCodeSettings> & Record<string, unknown>
+  const d = AUX_CODE_DEFAULTS
+  const dpi = pick(r.dpi, ['600', '1200'] as const, d.dpi)
+  const dotOpts = dpi === '600' ? (['1', '2', '3'] as const) : (['2', '3'] as const)
+  const dotSize = pick(r.dotSize, dotOpts, '2')
+  const contentMax = dpi === '600' ? 26000 : 25310
+  const entryMax = dotSize === '3' ? 56310 : 56494
+  const num = (v: unknown, def: number) => (Number.isFinite(Number(v)) ? Math.round(Number(v)) : def)
+  const styleMap: Record<string, AuxCodeSettings['entryStyle']> = { classic: 'flag', rounded: 'ticket', accent: 'focus' }
+  const rawStyle = typeof r.entryStyle === 'string' ? (styleMap[r.entryStyle] ?? r.entryStyle) : r.entryStyle
+  let entryRect = r.entryRect && typeof r.entryRect === 'object' ? r.entryRect : null
+  if (!entryRect && r.entryPos && typeof r.entryPos === 'object') {
+    entryRect = { x: clamp(Number(r.entryPos.x) || 0, 0, 1), y: clamp(Number(r.entryPos.y) || 0, 0, 1), w: 0, h: 0 }
+  }
+  const paperMm = (r.customPaperMm ?? d.customPaperMm) as { w: number; h: number }
+  return {
+    enabled: typeof r.enabled === 'boolean' ? r.enabled : d.enabled,
+    entryCode: clamp(num(r.entryCode, d.entryCode), 56001, entryMax),
+    contentStartCode: clamp(num(r.contentStartCode, d.contentStartCode), 25001, contentMax),
+    level: pick(r.level, ['page', 'paragraph', 'sentence'] as const, d.level),
+    printMode: pick(r.printMode, ['integrated', 'separate'] as const, d.printMode),
+    dpi,
+    dotSize,
+    removeBlack: pick(r.removeBlack, ['keep', 'remove'] as const, d.removeBlack),
+    paper: pick(r.paper, ['A4', 'A5', 'B5', 'custom'] as const, d.paper),
+    customPaperMm: { w: clamp(num(paperMm.w, 210), 30, 600), h: clamp(num(paperMm.h, 297), 30, 600) },
+    orientation: pick(r.orientation, ['portrait', 'landscape'] as const, d.orientation),
+    lineMerge: pick(r.lineMerge, ['off', 'normal', 'loose'] as const, d.lineMerge),
+    boxPadding: pick(String(r.boxPadding ?? ''), BOX_PADDING_OPTIONS, '12'),
+    imageCode: pick(r.imageCode, ['off', 'page', 'caption'] as const, d.imageCode),
+    entryRect,
+    entryPos: null,
+    entryPlacement: pick(r.entryPlacement, ['first', 'all'] as const, d.entryPlacement),
+    entryCorner: pick(r.entryCorner, ['tl', 'tr', 'bl', 'br'] as const, d.entryCorner),
+    entrySizeMm: clamp(num(r.entrySizeMm, d.entrySizeMm), 12, 40),
+    entryStyle: pick(rawStyle, ['flag', 'ticket', 'focus', 'dotted', 'plain'] as const, d.entryStyle),
+    entryBoxKey: typeof r.entryBoxKey === 'string' ? r.entryBoxKey : null,
+    bindingPageNumbers: typeof r.bindingPageNumbers === 'boolean' ? r.bindingPageNumbers : d.bindingPageNumbers,
+  }
+}
+
+export interface ReaderCue {
+  start: number
+  end: number
+  text: string
+  pageIndex: number
+  box?: Box
+  sentenceIndex?: number
+}
+
+export interface ReaderClip {
+  url: string
+  pageIndex: number
+  box: Box | null
+  start?: number
+  end?: number
+  text?: string
+}
+
+export interface ReaderData {
+  project: { id: string; title: string; audioMode: string }
+  pdfUrl: string
+  audio: { url: string; durations?: number[] } | null
+  pages: { index: number; width: number; height: number }[]
+  cues: ReaderCue[]
+  clips?: ReaderClip[]
+}
+
+export interface BookExport {
+  id: string
+  projectId: string
+  type: 'oid_zip' | 'pdf'
+  status: 'queued' | 'running' | 'succeeded' | 'failed'
+  progress: number
+  error?: string
+  fileName?: string
+  url?: string
+}
+
+export interface ProjectFileInfo {
+  name: string
+  size: number
+  updatedAt: string
+}

@@ -3,6 +3,7 @@ package com.pepapage.project;
 import com.pepapage.common.Result;
 import com.pepapage.common.UserContext;
 import com.pepapage.project.dto.ProjectDtos.BatchDeleteRequest;
+import com.pepapage.project.dto.ProjectDtos.ConfirmOcrRequest;
 import com.pepapage.project.dto.ProjectDtos.CreateProjectRequest;
 import com.pepapage.project.dto.ProjectDtos.MoveProjectsRequest;
 import com.pepapage.project.dto.ProjectDtos.RenameProjectRequest;
@@ -66,6 +67,18 @@ public class BookProjectController {
     @PostMapping("/{id}/retry")
     public Result<BookProject> retry(@PathVariable Long id) {
         return Result.ok(projectService.retry(UserContext.requireUserId(), id));
+    }
+
+    @PostMapping("/{id}/confirm-ocr")
+    public Result<BookProject> confirmOcr(@PathVariable Long id, @RequestBody(required = false) ConfirmOcrRequest req) {
+        return Result.ok(projectService.confirmOcr(UserContext.requireUserId(), id,
+                req == null ? null : req.sentenceCount()));
+    }
+
+    @PostMapping("/{id}/realign")
+    public Result<BookProject> realign(@PathVariable Long id, @RequestBody(required = false) ConfirmOcrRequest req) {
+        return Result.ok(projectService.realign(UserContext.requireUserId(), id,
+                req == null ? null : req.sentenceCount()));
     }
 
     @PutMapping("/{id}/title")

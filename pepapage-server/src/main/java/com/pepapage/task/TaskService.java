@@ -27,6 +27,11 @@ public class TaskService {
     private final AppProperties props;
 
     public ProcessTask enqueue(BookProject project, String taskType) {
+        return enqueue(project, taskType, Map.of());
+    }
+
+    /** extra 为附加消息字段（如导出任务的 exportId、type）。 */
+    public ProcessTask enqueue(BookProject project, String taskType, Map<String, String> extra) {
         ProcessTask task = new ProcessTask();
         task.setUserId(project.getUserId());
         task.setProjectId(project.getId());
@@ -34,11 +39,12 @@ public class TaskService {
         task.setStatus("queued");
         taskMapper.insert(task);
 
-        Map<String, String> fields = Map.of(
-                "taskId", String.valueOf(task.getId()),
-                "projectId", String.valueOf(project.getId()),
-                "taskType", taskType,
-                "audioMode", project.getAudioMode());
+        Map<String, String> fields = new java.util.LinkedHashMap<>();
+        fields.put("taskId", String.valueOf(task.getId()));
+        fields.put("projectId", String.valueOf(project.getId()));
+        fields.put("taskType", taskType);
+        fields.put("audioMode", project.getAudioMode());
+        fields.putAll(extra);
         Runnable publish = () -> {
             MapRecord<String, String, String> record = StreamRecords.newRecord()
                     .in(props.worker().taskStream())

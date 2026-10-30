@@ -51,6 +51,11 @@ export interface BookProject {
   updatedAt: string
 }
 
+export interface CoursewareExportResult {
+  url: string
+  fileName: string
+}
+
 export interface UploadPolicy {
   host: string
   key: string

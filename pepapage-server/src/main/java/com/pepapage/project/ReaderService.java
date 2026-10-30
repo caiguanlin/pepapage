@@ -1,6 +1,7 @@
 package com.pepapage.project;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.pepapage.common.BizException;
 import com.pepapage.project.entity.BookProject;
 import com.pepapage.storage.OssService;
 import com.pepapage.storage.StorageKeys;
@@ -8,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -15,12 +17,16 @@ import java.util.Map;
 
 /**
  * 阅读器数据（契约 §2 GET /book-projects/{id}/reader）。
- * single：OCR（优先 book-ocr-reviewed.json）+ book-alignment.json，跳过 start&lt;0 的句子；
- * multi/tts：book-audio-mapping.json；有 reader-merged.wav 时按 meta.durations 累加出 cues，否则返回 clips。
+ * single：原始 book-ocr.json（与原版对齐 rSe 一致，不读校对稿）+ book-alignment.json，跳过 start/end&lt;0 的句子；
+ * multi/tts：OCR 优先 book-ocr-reviewed.json；book-audio-mapping.json 只保留有 fileName 和 pageIndex 的条目
+ * （tts 按 sentenceIndex 升序），为空时报原版错误；有 reader-merged.wav 时按 meta.durations 累加出 cues，否则返回 clips。
  */
 @Service
 @RequiredArgsConstructor
 public class ReaderService {
+
+    static final String MULTI_EMPTY = "多音频未经过模型处理，无法使用阅读器";
+    static final String TTS_EMPTY = "没有可用的配音音频，请先完成配音";
 
     private final BookProjectService projectService;
     private final ProjectFileService fileService;
@@ -29,8 +35,9 @@ public class ReaderService {
     public Map<String, Object> reader(Long userId, Long id) {
         BookProject p = projectService.requireOwned(userId, id);
         String prefix = StorageKeys.projectPrefix(p.getUserId(), p.getId());
+        boolean single = "single".equals(p.getAudioMode());
 
-        JsonNode ocr = fileService.readJsonByKey(prefix + "book-ocr-reviewed.json");
+        JsonNode ocr = single ? null : fileService.readJsonByKey(prefix + "book-ocr-reviewed.json");
         if (ocr == null) {
             ocr = fileService.readJsonByKey(prefix + "book-ocr.json");
         }
@@ -57,7 +64,7 @@ public class ReaderService {
         out.put("pages", pages);
 
         List<Map<String, Object>> cues = new ArrayList<>();
-        if ("single".equals(p.getAudioMode())) {
+        if (single) {
             String audioKey = p.getAudioFileKey();
             if (ossService.exists(prefix + "audio.wav")) {
                 audioKey = prefix + "audio.wav";
@@ -90,10 +97,24 @@ public class ReaderService {
         }
 
         // multi / tts
+        boolean tts = "tts".equals(p.getAudioMode());
         JsonNode mapping = fileService.readJsonByKey(prefix + "book-audio-mapping.json");
         List<JsonNode> entries = new ArrayList<>();
         if (mapping != null) {
-            mapping.path("entries").forEach(entries::add);
+            for (JsonNode e : mapping.path("entries")) {
+                String fileName = e.path("fileName").asText("");
+                if (!fileName.isBlank() && e.hasNonNull("pageIndex")) {
+                    entries.add(e);
+                }
+            }
+        }
+        if (tts) {
+            entries.sort(Comparator.comparing(
+                    (JsonNode e) -> e.hasNonNull("sentenceIndex") ? e.get("sentenceIndex").asInt() : null,
+                    Comparator.nullsLast(Comparator.<Integer>naturalOrder())));
+        }
+        if (entries.isEmpty()) {
+            throw new BizException(tts ? TTS_EMPTY : MULTI_EMPTY);
         }
         String mergedKey = prefix + "reader-merged.wav";
         JsonNode meta = fileService.readJsonByKey(prefix + "reader-merged-meta.json");
@@ -117,10 +138,7 @@ public class ReaderService {
         out.put("audio", null);
         List<Map<String, Object>> clips = new ArrayList<>();
         for (JsonNode e : entries) {
-            String fileName = e.path("fileName").asText(null);
-            if (fileName == null) {
-                continue;
-            }
+            String fileName = e.get("fileName").asText();
             String key = fileName.startsWith("users/") ? fileName : prefix + fileName;
             Map<String, Object> clip = entryCue(e, sentences, null, null);
             clip.put("url", ossService.signedGetUrl(key));

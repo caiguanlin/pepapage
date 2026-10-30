@@ -4,13 +4,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { ArrowLeft, FileText, Loader2, Music, Save, Share2, X, ZoomIn, ZoomOut } from 'lucide-react'
 import { projectApi, storageApi, uploadToOss } from '../../api/books'
-import { projectFilesApi } from '../../api/projectFiles'
+import { bookActionApi, projectFilesApi } from '../../api/projectFiles'
 import type { BookProject } from '../../api/types'
 import type { AuxCodeSettings, Box } from '../../api/editorTypes'
 import { PdfPage, boxStyle, usePdf } from '../reader/pdfDoc'
 import TrackPanel from './TrackPanel'
 import SettingsPanel, { type Tool } from './SettingsPanel'
 import ExportPanel from './ExportPanel'
+import RecognizedTextPanel, { type RecognizedState } from './RecognizedTextPanel'
 import {
   FILES,
   HANDLES,
@@ -134,6 +135,8 @@ export default function EditorPage() {
   const [showCodes, setShowCodes] = useState(false)
   /** 画布点击框触发试听：key 为被点击的框，n 每次点击递增 */
   const [playReq, setPlayReq] = useState<{ key: string; n: number } | null>(null)
+  /** single 右栏识别文字，来自 GET /analysis 的 lines */
+  const [recognized, setRecognized] = useState<RecognizedState>({ status: 'loading' })
   const scrollRef = useRef<HTMLDivElement>(null)
   const { doc, sizes, error: pdfErr } = usePdf(pdfUrl)
 
@@ -150,6 +153,14 @@ export default function EditorPage() {
         if (!pdf) setLoadErr('项目缺少 book.pdf，无法编辑')
         setPdfUrl(pdf)
         if (p.audioMode === 'single') {
+          bookActionApi
+            .analysis(id)
+            .then((a) => {
+              if (off) return
+              const lines = Array.isArray(a?.lines) ? a.lines : []
+              setRecognized({ status: 'ready', lines: lines.map((l) => ({ ...l, words: Array.isArray(l.words) ? l.words : [] })) })
+            })
+            .catch(() => !off && setRecognized({ status: 'error' }))
           let u = await projectFilesApi.tryUrl(id, 'audio.wav').catch(() => null)
           if (!u && p.audioFileKey) u = (await storageApi.signedUrl(p.audioFileKey).catch(() => null))?.url ?? null
           if (!off) setSharedUrl(u)
@@ -817,27 +828,12 @@ export default function EditorPage() {
           </main>
 
           {mode === 'single' && (
-            <aside className="flex w-56 shrink-0 flex-col border-l border-[#e8e4dc] bg-white">
-              <div className="px-3 py-2 text-xs font-bold text-slate-500">识别文字</div>
-              <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 pb-2">
-                {sentences.map((b) => {
-                  const r = effectiveRange(data, b)
-                  return (
-                    <button
-                      key={b.key}
-                      onClick={() => scrollToBox(b)}
-                      className={`block w-full rounded-md border px-2 py-1.5 text-left text-xs ${b.key === selKey ? 'border-red-400 bg-red-50' : 'border-transparent hover:bg-slate-50'} ${excluded.has(b.key) ? 'opacity-50' : ''}`}
-                    >
-                      <div className="text-slate-700">{b.text || '（空句）'}</div>
-                      <div className={`mt-0.5 text-[11px] ${r ? 'text-slate-400' : 'text-amber-600'}`}>
-                        P{b.pageIndex} · {r ? `${r.start.toFixed(2)}s–${r.end.toFixed(2)}s${r.manual ? ' · 手动' : ''}` : '未匹配'}
-                      </div>
-                    </button>
-                  )
-                })}
-                {!sentences.length && <div className="px-1 text-xs text-slate-400">没有识别到文字</div>}
-              </div>
-            </aside>
+            <RecognizedTextPanel
+              state={recognized}
+              audioUrl={sharedUrl}
+              selection={sel ? { key: sel.key, range: range && { start: range.start, end: range.end }, editable: editableRange } : null}
+              onRange={(s, e) => editableRange && setRange(s, e)}
+            />
           )}
         </div>
       )}

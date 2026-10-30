@@ -175,6 +175,7 @@ public class BookProjectService {
         p.setStatus("processing");
         p.setCurrentStepIndex(0);
         p.setProcessingSteps(initialSteps(p.getAudioMode()));
+        resetTtsConfirmation(p);
         projectMapper.updateById(p);
         projectMapper.update(Wrappers.<BookProject>lambdaUpdate()
                 .eq(BookProject::getId, id)
@@ -194,29 +195,13 @@ public class BookProjectService {
         if ("uploading".equals(p.getStatus())) {
             throw new BizException("项目尚未提交");
         }
-        List<ProcessingStep> steps = ensureSteps(p);
-        ProcessingStep ocr = steps.get(0);
-        if (!"completed".equals(ocr.getStatus())) {
-            throw new BizException("OCR 尚未完成");
-        }
-        steps.get(3).setStatus("pending");
-        steps.get(3).setProgress(0);
-        p.setProcessingSteps(steps);
-        p.setOcrConfirmed(true);
-        p.setCurrentStepIndex(3);
-        p.setStatus("processing");
-        if (sentenceCount != null) {
-            putMeta(p, "sentenceCount", sentenceCount);
-        }
-        projectMapper.updateById(p);
-        clearError(p);
-        taskService.enqueue(p, "book_tts");
-        return p;
+        return startTts(p, ensureSteps(p), sentenceCount);
     }
 
     /**
      * 规格 hse：前三步全部 completed（skipped 不算）才只重置第 3 步并投递 book_realign；否则等同全重试。
      * 校对后重对齐（fse）同样设 ocrConfirmed=true。
+     * tts（规格 fse/xF，按校稿重新配音）：要求 OCR 已完成，只重置第 3 步并投递 book_tts。
      */
     @Transactional
     public BookProject realign(Long userId, Long id, Integer sentenceCount) {
@@ -228,6 +213,9 @@ public class BookProjectService {
             throw new BizException("项目正在处理中");
         }
         List<ProcessingStep> steps = ensureSteps(p);
+        if ("tts".equals(p.getAudioMode())) {
+            return startTts(p, steps, sentenceCount);
+        }
         boolean firstThreeCompleted = steps.subList(0, 3).stream().allMatch(s -> "completed".equals(s.getStatus()));
         if (sentenceCount != null) {
             putMeta(p, "sentenceCount", sentenceCount);
@@ -247,14 +235,42 @@ public class BookProjectService {
         return p;
     }
 
+    /** tts 第 3 步合成配音：确认 OCR（aSe）与按校稿重新配音（fse）共用。 */
+    private BookProject startTts(BookProject p, List<ProcessingStep> steps, Integer sentenceCount) {
+        if (!"completed".equals(steps.get(0).getStatus())) {
+            throw new BizException("OCR 尚未完成");
+        }
+        steps.get(3).setStatus("pending");
+        steps.get(3).setProgress(0);
+        p.setProcessingSteps(steps);
+        p.setOcrConfirmed(true);
+        p.setCurrentStepIndex(3);
+        p.setStatus("processing");
+        if (sentenceCount != null) {
+            putMeta(p, "sentenceCount", sentenceCount);
+        }
+        projectMapper.updateById(p);
+        clearError(p);
+        taskService.enqueue(p, "book_tts");
+        return p;
+    }
+
     private BookProject fullRetry(BookProject p) {
         p.setStatus("processing");
         p.setCurrentStepIndex(0);
         p.setProcessingSteps(initialSteps(p.getAudioMode()));
+        resetTtsConfirmation(p);
         projectMapper.updateById(p);
         clearError(p);
         taskService.enqueue(p, "book_full");
         return p;
+    }
+
+    /** 全量重跑的 tts 项目要重新进入“待校对”（xF）。 */
+    private static void resetTtsConfirmation(BookProject p) {
+        if ("tts".equals(p.getAudioMode())) {
+            p.setOcrConfirmed(false);
+        }
     }
 
     private void clearError(BookProject p) {

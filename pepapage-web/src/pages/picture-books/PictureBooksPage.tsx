@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { ArrowDown, ArrowLeft, ArrowUp, ChevronRight, Download, FolderInput, FolderPlus, Plus, Trash2, Upload } from 'lucide-react'
 import { coursewareApi, folderApi, projectApi } from '../../api/books'
+import { bookActionApi } from '../../api/projectFiles'
 import type { BookFolder, BookProject } from '../../api/types'
 import TopBar from '../../layout/TopBar'
 import { FolderCard, ProjectCard, type CardAction } from './ProjectCard'
@@ -13,7 +14,6 @@ type SortKey = 'createdAt' | 'title'
 type Modal =
   | { kind: 'newFolder' }
   | { kind: 'renameFolder'; folder: BookFolder }
-  | { kind: 'renameProject'; project: BookProject }
   | { kind: 'move'; projectIds: string[]; folderIds: string[] }
   | { kind: 'detail'; project: BookProject }
   | null
@@ -35,6 +35,8 @@ export default function PictureBooksPage() {
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  const [opening, setOpening] = useState<string | null>(null)
+  const openingRef = useRef<string | null>(null)
   const importInput = useRef<HTMLInputElement>(null)
 
   const kw = keyword.trim()
@@ -192,30 +194,49 @@ export default function PictureBooksPage() {
     })
   }
 
+  /** 卡片点击：先请求 /reader 做资格检查，成功才进入阅读器；失败显示服务端返回的原版错误文字。 */
+  async function openReader(p: BookProject) {
+    if (openingRef.current) return
+    openingRef.current = p.id
+    setOpening(p.id)
+    setError(null)
+    try {
+      await bookActionApi.reader(p.id)
+      navigate(`/reader/${p.id}`)
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      openingRef.current = null
+      setOpening(null)
+    }
+  }
+
   function onProjectAction(p: BookProject, a: CardAction) {
     switch (a) {
       case 'detail':
         setModal({ kind: 'detail', project: p })
         break
-      case 'editor':
-        navigate(`/picture-books/${p.id}/editor`)
-        break
       case 'realign':
-        if (!window.confirm('使用校对后的文本重新对齐？已有对齐结果将被覆盖。')) return
+        if (!window.confirm(`重新计算「${p.title}」的句子对齐？只重跑对齐步骤，不会重新识别文字与音频。`)) return
         run('realign', async () => {
           await projectApi.realign(p.id)
           setNotice('已开始重新对齐')
           await load()
         })
         break
-      case 'rename':
-        setModal({ kind: 'renameProject', project: p })
+      case 'review':
+        navigate(`/picture-books/${p.id}/review`)
         break
-      case 'move':
-        setModal({ kind: 'move', projectIds: [p.id], folderIds: [] })
+      case 'redub':
+        if (!window.confirm('按校稿重新配音？已有配音将被覆盖。')) return
+        run('redub', async () => {
+          await projectApi.realign(p.id)
+          setNotice('已开始重新配音')
+          await load()
+        })
         break
-      case 'export':
-        exportCourseware([p.id], [])
+      case 'retry':
+        retry(p.id)
         break
       case 'delete':
         deleteItems([p.id], [])
@@ -437,10 +458,12 @@ export default function PictureBooksPage() {
                   key={p.id}
                   project={p}
                   selected={selectedProjects.has(p.id)}
+                  opening={opening === p.id}
                   onToggleSelect={() => toggle(setSelectedProjects, p.id)}
-                  onOpen={() => navigate(`/reader/${p.id}`)}
+                  onOpen={() => openReader(p)}
                   onReview={() => navigate(`/picture-books/${p.id}/review`)}
                   onRetry={() => retry(p.id)}
+                  onEditor={() => navigate(`/picture-books/${p.id}/editor`)}
                   onAction={(a) => onProjectAction(p, a)}
                 />
               ))}
@@ -469,17 +492,6 @@ export default function PictureBooksPage() {
           onClose={() => setModal(null)}
           onSubmit={async (name) => {
             await folderApi.rename(modal.folder.id, name)
-            await load()
-          }}
-        />
-      )}
-      {modal?.kind === 'renameProject' && (
-        <NameDialog
-          title="重命名项目"
-          initial={modal.project.title}
-          onClose={() => setModal(null)}
-          onSubmit={async (name) => {
-            await projectApi.rename(modal.project.id, name)
             await load()
           }}
         />

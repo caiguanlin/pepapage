@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { BookOpen, Check, Folder, MoreHorizontal } from 'lucide-react'
+import { BookOpen, Check, Cpu, Folder, Info, Loader2, MoreHorizontal, QrCode, RefreshCw, Sparkles, Trash2, Zap } from 'lucide-react'
 import { projectFileUrl, storageApi } from '../../api/books'
 import type { BookFolder, BookProject } from '../../api/types'
 
@@ -44,21 +44,23 @@ export function metaNum(p: BookProject, key: string): number | undefined {
   return typeof v === 'number' ? v : typeof v === 'string' && v !== '' && !Number.isNaN(Number(v)) ? Number(v) : undefined
 }
 
-export function projectStats(p: BookProject): { label: string; value: string }[] {
-  const pages = String(p.pageCount ?? metaNum(p, 'pageCount') ?? '-')
+/** 统计行，排版照截图 08：单音频"页13/字幕26 · 已对齐2 · 时长0:04"，多音频/TTS"页N/音频M · 已映射K"。 */
+export function projectStats(p: BookProject): string {
+  const pages = p.pageCount ?? metaNum(p, 'pageCount') ?? '-'
   if (p.audioMode === 'single') {
-    return [
-      { label: '页数', value: pages },
-      { label: '字幕数', value: String(metaNum(p, 'sentenceCount') ?? '-') },
-      { label: '已对齐', value: String(metaNum(p, 'matchedSentenceCount') ?? '-') },
-      { label: '时长', value: formatDuration(p.durationSeconds ?? metaNum(p, 'duration')) },
-    ]
+    // "字幕"取 metadata.sentenceCount，是 OCR 句数，不是 ASR 字幕条数，原版口径也是这样。
+    const subtitles = metaNum(p, 'sentenceCount') ?? '-'
+    const matched = metaNum(p, 'matchedSentenceCount') ?? '-'
+    return `页${pages}/字幕${subtitles} · 已对齐${matched} · 时长${formatDuration(p.durationSeconds ?? metaNum(p, 'duration'))}`
   }
-  return [
-    { label: '页数', value: pages },
-    { label: '音频数', value: String(p.audioFiles?.length ?? metaNum(p, 'audioCount') ?? '-') },
-    { label: '已映射', value: String(metaNum(p, 'matchedAudioCount') ?? '-') },
-  ]
+  const audios = p.audioFiles?.length ?? metaNum(p, 'audioCount') ?? '-'
+  return `页${pages}/音频${audios} · 已映射${metaNum(p, 'matchedAudioCount') ?? '-'}`
+}
+
+/** metadata.asrModel 缺失或含 cloud 视为云端模型；worker 写的是 faster-whisper-<model>，显示本地模型。 */
+function isCloudModel(p: BookProject) {
+  const m = p.metadata?.asrModel
+  return typeof m !== 'string' || m.trim() === '' || m.toLowerCase().includes('cloud')
 }
 
 /** 封面：优先 files/url?name=book-cover.jpg，失败再用 coverKey 签名。只对完成或已有封面的项目请求。 */
@@ -98,25 +100,44 @@ function useCover(p: BookProject) {
   return url
 }
 
-export type CardAction = 'detail' | 'editor' | 'realign' | 'rename' | 'move' | 'export' | 'delete'
+export type CardAction = 'detail' | 'realign' | 'review' | 'redub' | 'retry' | 'delete'
 
 interface ProjectCardProps {
   project: BookProject
   selected: boolean
+  /** 正在做阅读器资格检查 */
+  opening?: boolean
   onToggleSelect: () => void
   onOpen: () => void
   onReview: () => void
   onRetry: () => void
+  onEditor: () => void
   onAction: (a: CardAction) => void
 }
 
-export function ProjectCard({ project: p, selected, onToggleSelect, onOpen, onReview, onRetry, onAction }: ProjectCardProps) {
+const badgeText = { textShadow: '0 0 2px black, 0 1px 2px rgba(0,0,0,0.9)' }
+
+export function ProjectCard({
+  project: p,
+  selected,
+  opening,
+  onToggleSelect,
+  onOpen,
+  onReview,
+  onRetry,
+  onEditor,
+  onAction,
+}: ProjectCardProps) {
   const cover = useCover(p)
   const pending = isPendingReview(p)
   const processing = (p.status === 'processing' || p.status === 'uploading') && !pending
   const activeStep = p.processingSteps?.[p.currentStepIndex]
   const progress = overallProgress(p)
   const completed = p.status === 'completed'
+  const failed = p.status === 'failed'
+  // 封面与标题区点击：完成进阅读器（先做资格检查），待校对进校对页，失败弹重试确认
+  const onBodyClick = completed ? onOpen : pending ? onReview : failed ? onRetry : undefined
+  const cloud = isCloudModel(p)
 
   return (
     <div
@@ -127,9 +148,9 @@ export function ProjectCard({ project: p, selected, onToggleSelect, onOpen, onRe
       }`}
     >
       <div
-        onClick={completed ? onOpen : pending ? onReview : undefined}
+        onClick={opening ? undefined : onBodyClick}
         className={`relative aspect-[16/10] overflow-hidden bg-gradient-to-br from-emerald-50 to-teal-50 ${
-          completed || pending ? 'cursor-pointer' : ''
+          opening ? 'cursor-wait' : onBodyClick ? 'cursor-pointer' : ''
         }`}
       >
         {cover ? (
@@ -164,14 +185,34 @@ export function ProjectCard({ project: p, selected, onToggleSelect, onOpen, onRe
         </button>
 
         {!processing && p.status !== 'failed' && !pending && (
-          <span className="absolute bottom-3 left-4 rounded-md bg-white/80 px-1.5 py-0.5 text-[11px] font-medium text-slate-600 backdrop-blur">
+          <span className="pointer-events-none absolute bottom-2 left-2 rounded-md bg-black/50 px-2 py-1 text-[10px] font-bold text-white backdrop-blur-sm" style={badgeText}>
             {formatDate(p.createdAt)}
           </span>
         )}
-        {completed && (
-          <span className="absolute bottom-3 right-4 rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-bold text-white">
-            {p.audioMode === 'single' ? '云端模型' : MODE_LABEL[p.audioMode]}
+        {completed && p.audioMode === 'single' && (
+          <span
+            className={`pointer-events-none absolute bottom-2 right-2 flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-bold text-white backdrop-blur-sm ${
+              cloud ? 'bg-gradient-to-r from-yellow-400/95 to-amber-500/95' : 'bg-black/50'
+            }`}
+            style={badgeText}
+          >
+            {cloud ? <Zap size={9} /> : <Cpu size={9} />}
+            {cloud ? '云端模型' : '本地模型'}
           </span>
+        )}
+        {completed && p.audioMode !== 'single' && (
+          <span
+            className="pointer-events-none absolute bottom-2 right-2 flex items-center gap-1 rounded-md bg-gradient-to-r from-emerald-500/95 to-teal-600/95 px-2 py-1 text-[10px] font-bold text-white backdrop-blur-sm"
+            style={badgeText}
+          >
+            <Sparkles size={9} />
+            {MODE_LABEL[p.audioMode]}
+          </span>
+        )}
+        {opening && (
+          <div className="absolute inset-0 flex items-center justify-center bg-white/40">
+            <Loader2 size={24} className="animate-spin text-indigo-600" />
+          </div>
         )}
 
         {processing && (
@@ -222,23 +263,36 @@ export function ProjectCard({ project: p, selected, onToggleSelect, onOpen, onRe
         )}
       </div>
 
-      <div className="flex items-start gap-2 px-5 pb-4 pt-3">
-        <div className="min-w-0 flex-1">
-          <div
-            onClick={completed ? onOpen : undefined}
-            className={`truncate text-xs font-bold uppercase tracking-wide text-slate-800 ${completed ? 'cursor-pointer hover:text-indigo-600' : ''}`}
-            title={p.title}
-          >
-            {p.title}
-          </div>
-          <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-slate-400">
-            {projectStats(p).map((s) => (
-              <span key={s.label}>
-                {s.label} <b className="font-semibold text-slate-600">{s.value}</b>
-              </span>
-            ))}
-          </div>
+      <div
+        onClick={opening ? undefined : onBodyClick}
+        className={`px-5 pb-2 pt-4 ${opening ? 'cursor-wait' : onBodyClick ? 'cursor-pointer' : ''}`}
+      >
+        <div
+          className="truncate text-xs font-bold uppercase tracking-tight text-slate-900 transition-colors group-hover:text-indigo-600"
+          title={p.title}
+        >
+          {p.title}
         </div>
+        <div className="mt-1 truncate text-[9px] font-bold text-slate-500" title={projectStats(p)}>
+          {projectStats(p)}
+        </div>
+      </div>
+      <div className="mx-5 mt-2 h-px bg-[linear-gradient(to_right,transparent,black_50%,transparent)]" />
+      <div className="flex items-center justify-between px-5 pb-5 pt-2">
+        <button
+          disabled={!completed}
+          onClick={(e) => {
+            e.stopPropagation()
+            if (completed) onEditor()
+          }}
+          title={completed ? '辅码（点读码设置）' : '制作完成后可用'}
+          className={`group/btn flex flex-col items-center gap-1 transition-colors ${
+            completed ? 'cursor-pointer text-slate-500 hover:text-indigo-600' : 'cursor-not-allowed text-slate-300 opacity-40 grayscale'
+          }`}
+        >
+          <QrCode size={16} className={completed ? 'text-slate-600 transition-colors group-hover/btn:text-indigo-500' : 'text-slate-400'} />
+          <span className="whitespace-nowrap text-[11px] font-medium">辅码</span>
+        </button>
         <CardMenu project={p} onAction={onAction} />
       </div>
     </div>
@@ -257,42 +311,46 @@ function CardMenu({ project: p, onAction }: { project: BookProject; onAction: (a
     return () => document.removeEventListener('mousedown', close)
   }, [open])
 
+  // 菜单项照原版：completed single/multi → 详情、重新对齐；completed tts → 详情、校对识别结果、按校稿重新配音；failed → 重试；删除项目各状态都有
   const completed = p.status === 'completed'
-  const items: { key: CardAction; label: string; show: boolean; danger?: boolean }[] = [
-    { key: 'detail', label: '项目详情', show: true },
-    { key: 'editor', label: '原书辅码编辑', show: completed },
-    { key: 'realign', label: '校对后重对齐', show: completed && p.audioMode === 'single' },
-    { key: 'rename', label: '重命名', show: true },
-    { key: 'move', label: '移动到…', show: true },
-    { key: 'export', label: '导出课件', show: completed },
-    { key: 'delete', label: '删除', show: true, danger: true },
+  const tts = p.audioMode === 'tts'
+  const items: { key: CardAction; label: string; icon: typeof Info; show: boolean }[] = [
+    { key: 'detail', label: '详情', icon: Info, show: completed },
+    { key: 'realign', label: '重新对齐', icon: RefreshCw, show: completed && !tts },
+    { key: 'review', label: '校对识别结果', icon: BookOpen, show: completed && tts },
+    { key: 'redub', label: '按校稿重新配音', icon: RefreshCw, show: completed && tts },
+    { key: 'retry', label: '重试', icon: RefreshCw, show: p.status === 'failed' },
   ]
+  const visible = items.filter((i) => i.show)
+  const pick = (a: CardAction) => {
+    setOpen(false)
+    onAction(a)
+  }
+  const itemCls = 'flex w-full items-center gap-2 px-3 py-2 text-xs font-bold transition-colors'
 
   return (
-    <div ref={ref} className="relative shrink-0">
+    <div ref={ref} className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
       <button
         title="更多"
         onClick={() => setOpen((v) => !v)}
-        className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+        className="group/btn flex cursor-pointer flex-col items-center gap-1 text-slate-500 transition-colors hover:text-indigo-600"
       >
-        <MoreHorizontal size={18} />
+        <MoreHorizontal size={16} className="text-slate-600 transition-colors group-hover/btn:text-indigo-500" />
+        <span className="whitespace-nowrap text-[11px] font-medium">更多</span>
       </button>
       {open && (
-        <div className="absolute bottom-full right-0 z-30 mb-1 w-36 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 text-sm shadow-lg">
-          {items
-            .filter((i) => i.show)
-            .map((i) => (
-              <button
-                key={i.key}
-                onClick={() => {
-                  setOpen(false)
-                  onAction(i.key)
-                }}
-                className={`block w-full px-3 py-1.5 text-left hover:bg-slate-50 ${i.danger ? 'text-rose-600' : 'text-slate-700'}`}
-              >
-                {i.label}
-              </button>
-            ))}
+        <div className="absolute bottom-full right-0 z-50 mb-1 w-max min-w-[8rem] whitespace-nowrap rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
+          {visible.map(({ key, label, icon: Icon }) => (
+            <button key={key} onClick={() => pick(key)} className={`${itemCls} text-slate-700 hover:bg-slate-50`}>
+              <Icon size={14} />
+              {label}
+            </button>
+          ))}
+          {visible.length > 0 && <div className="my-1 border-t border-slate-100" />}
+          <button onClick={() => pick('delete')} className={`${itemCls} text-red-500 hover:bg-red-50`}>
+            <Trash2 size={14} />
+            删除项目
+          </button>
         </div>
       )}
     </div>

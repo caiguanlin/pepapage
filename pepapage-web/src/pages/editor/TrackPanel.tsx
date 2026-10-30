@@ -63,6 +63,8 @@ export interface TrackPanelProps {
   onRepeat: (n: number) => void
   onUploadAudio: (f: File) => void
   onRemoveAudio: () => void
+  /** 画布点击框时递增；大于上次处理的值就从头试听一次（音频地址未就绪时等就绪后再播） */
+  playSignal?: number
 }
 
 export default function TrackPanel(p: TrackPanelProps) {
@@ -201,6 +203,10 @@ export default function TrackPanel(p: TrackPanelProps) {
     a.play().catch(() => {})
   }
 
+  const startAudition = () => {
+    if (p.range && p.editableRange) playFrom(p.range.start, p.range.end, p.repeat)
+    else playFrom(0, null, p.repeat)
+  }
   const audition = () => {
     const a = audioRef.current
     if (!a) return
@@ -208,9 +214,20 @@ export default function TrackPanel(p: TrackPanelProps) {
       a.pause()
       return
     }
-    if (p.range && p.editableRange) playFrom(p.range.start, p.range.end, p.repeat)
-    else playFrom(0, null, p.repeat)
+    startAudition()
   }
+
+  const handledSignal = useRef(0)
+  useEffect(() => {
+    const n = p.playSignal ?? 0
+    if (n <= handledSignal.current || !p.audioUrl) return
+    handledSignal.current = n
+    // 未匹配的句子没有区间，不从头播放整段音频
+    if (p.editableRange && !p.range) return
+    startAudition()
+    // 只响应新的点击信号与音频地址就绪
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p.playSignal, p.audioUrl])
 
   const onTime = () => {
     const a = audioRef.current!
@@ -267,7 +284,7 @@ export default function TrackPanel(p: TrackPanelProps) {
           音轨 · {p.title}
         </div>
         <button className={btn} onClick={audition} disabled={!p.audioUrl}>
-          {playing ? <Pause size={13} /> : <Play size={13} />} 试听
+          {playing ? <Pause size={13} /> : <Play size={13} />} {playing ? '播放中' : '试听'}
         </button>
         <label className="flex items-center gap-1 text-xs text-slate-600">
           遍数

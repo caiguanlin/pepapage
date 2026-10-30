@@ -2,7 +2,7 @@
 // 画布坐标统一为 OCR 渲染平面像素（scale=2），页码 1 起始。
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
-import { ArrowLeft, FileText, Loader2, Music, Save, Share2, ZoomIn, ZoomOut } from 'lucide-react'
+import { ArrowLeft, FileText, Loader2, Music, Save, Share2, X, ZoomIn, ZoomOut } from 'lucide-react'
 import { projectApi, storageApi, uploadToOss } from '../../api/books'
 import { projectFilesApi } from '../../api/projectFiles'
 import type { BookProject } from '../../api/types'
@@ -13,21 +13,40 @@ import SettingsPanel, { type Tool } from './SettingsPanel'
 import ExportPanel from './ExportPanel'
 import {
   FILES,
+  HANDLES,
+  OCR_PX_PER_MM,
   buildBoxes,
   clampBox,
   clampRepeat,
   effectiveRange,
   loadEditorData,
   newRegion,
+  planCodes,
   removeKeyArtifacts,
+  resizeBox,
   saveAll,
   type EditorBox,
   type EditorData,
+  type Handle,
 } from './editorModel'
 
 const MODE_TEXT: Record<string, string> = { single: '单音频', multi: '多音频', tts: 'AI 配音' }
 const PAPER_MM: Record<string, [number, number]> = { A4: [210, 297], A5: [148, 210], B5: [176, 250] }
 const BASE_WIDTH = 860
+/** 拖动距离小于该显示像素视为单击，放置默认尺寸 */
+const CLICK_PX = 4
+/** 点阵预览（仅示意，不是实际码点） */
+const DOT_BG = { backgroundImage: 'radial-gradient(circle, rgba(15,23,42,.35) .6px, transparent .7px)', backgroundSize: '4px 4px' }
+const HANDLE_POS: Record<Handle, string> = {
+  nw: '-top-1.5 -left-1.5 cursor-nwse-resize',
+  n: '-top-1.5 left-1/2 -translate-x-1/2 cursor-ns-resize',
+  ne: '-top-1.5 -right-1.5 cursor-nesw-resize',
+  e: 'top-1/2 -right-1.5 -translate-y-1/2 cursor-ew-resize',
+  se: '-right-1.5 -bottom-1.5 cursor-nwse-resize',
+  s: '-bottom-1.5 left-1/2 -translate-x-1/2 cursor-ns-resize',
+  sw: '-bottom-1.5 -left-1.5 cursor-nesw-resize',
+  w: 'top-1/2 -left-1.5 -translate-y-1/2 cursor-ew-resize',
+}
 
 function paperWidthMm(a: AuxCodeSettings) {
   const [w, h] = a.paper === 'custom' ? [a.customPaperMm.w, a.customPaperMm.h] : PAPER_MM[a.paper]
@@ -36,7 +55,56 @@ function paperWidthMm(a: AuxCodeSettings) {
 
 type Drag =
   | { kind: 'create'; page: number; ratio: number; x0: number; y0: number; x1: number; y1: number; rect: DOMRect }
-  | { kind: 'move' | 'resize'; key: string; page: number; ratio: number; start: Box; cx: number; cy: number; moved: boolean }
+  | { kind: 'move'; key: string; page: number; ratio: number; start: Box; cx: number; cy: number; moved: boolean }
+  | { kind: 'resize'; handle: Handle; key: string; page: number; ratio: number; start: Box; cx: number; cy: number; moved: boolean }
+
+/** 入口贴纸预览：位置按 entryCorner 离纸边 8mm，外框约为点码尺寸 × 1.18；有 entryRect 时按归一化坐标。 */
+function EntrySticker({ aux, displayWidth, displayHeight }: { aux: AuxCodeSettings; displayWidth: number; displayHeight: number }) {
+  const pxPerMm = displayWidth / paperWidthMm(aux) // 近似：按纸宽换算
+  const outer = aux.entrySizeMm * 1.18 * pxPerMm
+  const margin = 8 * pxPerMm
+  let w = outer
+  let h = outer
+  let left: number
+  let top: number
+  if (aux.entryRect) {
+    const r = aux.entryRect
+    if (r.w > 0) w = r.w * displayWidth
+    if (r.h > 0) h = r.h * displayHeight
+    left = r.x * displayWidth
+    top = r.y * displayHeight
+  } else {
+    left = aux.entryCorner === 'tl' || aux.entryCorner === 'bl' ? margin : displayWidth - margin - outer
+    top = aux.entryCorner === 'tl' || aux.entryCorner === 'tr' ? margin : displayHeight - margin - outer
+  }
+  const st = aux.entryStyle
+  const frame =
+    st === 'focus'
+      ? 'bg-white shadow-sm'
+      : st === 'flag'
+        ? 'rounded-md border-2 border-amber-500 bg-white'
+        : st === 'ticket'
+          ? 'rounded-md border-2 border-dashed border-slate-500 bg-white'
+          : st === 'plain'
+            ? 'border border-slate-400 bg-white'
+            : ''
+  const corner = 'absolute h-[18%] w-[18%] border-slate-700'
+  return (
+    <div className={`pointer-events-none absolute z-20 ${frame}`} style={{ left, top, width: w, height: h }} title={`入口码 ${aux.entryCode}`}>
+      <div className="absolute inset-[9%]" style={{ ...DOT_BG, backgroundSize: '3px 3px' }} />
+      {st === 'focus' && (
+        <>
+          <span className={`${corner} top-0 left-0 border-t-2 border-l-2`} />
+          <span className={`${corner} top-0 right-0 border-t-2 border-r-2`} />
+          <span className={`${corner} bottom-0 left-0 border-b-2 border-l-2`} />
+          <span className={`${corner} right-0 bottom-0 border-r-2 border-b-2`} />
+          <span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-amber-400" />
+        </>
+      )}
+      {st === 'flag' && <span className="absolute -top-2.5 left-1 rounded bg-amber-500 px-1 text-[9px] leading-4 text-white">点读入口</span>}
+    </div>
+  )
+}
 
 const fileLabel = (n: string) => n.split('/').pop() ?? n
 const isTyping = (t: EventTarget | null) =>
@@ -62,6 +130,10 @@ export default function EditorPage() {
   const [busy, setBusy] = useState(false)
   const [showExport, setShowExport] = useState(false)
   const [dragOverKey, setDragOverKey] = useState<string | null>(null)
+  /** 「显示码值」只影响预览，不写入 aux-code.json */
+  const [showCodes, setShowCodes] = useState(false)
+  /** 画布点击框触发试听：key 为被点击的框，n 每次点击递增 */
+  const [playReq, setPlayReq] = useState<{ key: string; n: number } | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const { doc, sizes, error: pdfErr } = usePdf(pdfUrl)
 
@@ -117,6 +189,13 @@ export default function EditorPage() {
   }, [boxes])
   const sel = boxes.find((b) => b.key === selKey) ?? null
   const sentences = useMemo(() => boxes.filter((b) => b.kind === 'sentence').sort((a, b) => a.sentenceIndex! - b.sentenceIndex!), [boxes])
+  // 与 worker 导出相同的区域规划与码值分配，供点阵预览和「显示码值」使用
+  const plan = useMemo(() => (data ? planCodes(mode, data) : null), [data, mode])
+
+  // 选中别的框（列表定位、Esc 等）时作废上一次点击的试听请求，避免重新挂载音轨时误播
+  useEffect(() => {
+    setPlayReq((r) => (r && r.key !== selKey ? null : r))
+  }, [selKey])
 
   // ---------- 保存 ----------
   const save = useCallback(async () => {
@@ -191,12 +270,12 @@ export default function EditorPage() {
     [data, id, update],
   )
 
+  /** 默认尺寸：矩形 30×22mm、圆形 26×26mm，按 1mm ≈ 144/25.4 OCR 像素换算，以点击处为中心。 */
   const defaultBox = (page: number, cx: number, cy: number, shape: 'rect' | 'ellipse'): Box => {
     const size = sizes[page - 1]
-    const pxPerMm = size.width / paperWidthMm(data!.aux)
     const [wmm, hmm] = shape === 'ellipse' ? [26, 26] : [30, 22]
-    const w = wmm * pxPerMm
-    const h = hmm * pxPerMm
+    const w = wmm * OCR_PX_PER_MM
+    const h = hmm * OCR_PX_PER_MM
     return clampBox({ x: cx - w / 2, y: cy - h / 2, width: w, height: h }, size.width, size.height)
   }
 
@@ -211,11 +290,13 @@ export default function EditorPage() {
     setDrag({ kind: 'create', page, ratio, x0: x, y0: y, x1: x, y1: y, rect })
   }
 
-  const onBoxDown = (b: EditorBox, ratio: number, resize: boolean) => (e: React.PointerEvent) => {
+  /** handle 为空时拖动整个框，否则按手柄方向缩放。 */
+  const onBoxDown = (b: EditorBox, ratio: number, handle?: Handle) => (e: React.PointerEvent) => {
     if (tool !== 'select' || e.button !== 0) return
     e.stopPropagation()
     setSelKey(b.key)
-    setDrag({ kind: resize ? 'resize' : 'move', key: b.key, page: b.pageIndex, ratio, start: b.box, cx: e.clientX, cy: e.clientY, moved: false })
+    const base = { key: b.key, page: b.pageIndex, ratio, start: b.box, cx: e.clientX, cy: e.clientY, moved: false }
+    setDrag(handle ? { kind: 'resize', handle, ...base } : { kind: 'move', ...base })
   }
 
   useEffect(() => {
@@ -232,10 +313,10 @@ export default function EditorPage() {
       const s = drag.start
       const nb =
         drag.kind === 'move'
-          ? { ...s, x: s.x + dx, y: s.y + dy }
-          : { ...s, width: Math.max(8, s.width + dx), height: Math.max(8, s.height + dy) }
+          ? clampBox({ ...s, x: s.x + dx, y: s.y + dy }, size.width, size.height)
+          : resizeBox(s, drag.handle, dx, dy, size.width, size.height)
       if (!drag.moved) setDrag({ ...drag, moved: true })
-      applyBox(drag.key, clampBox(nb, size.width, size.height))
+      applyBox(drag.key, nb)
     }
     const up = () => {
       if (drag.kind === 'create' && data) {
@@ -244,13 +325,17 @@ export default function EditorPage() {
         const w = Math.abs(drag.x1 - drag.x0)
         const h = Math.abs(drag.y1 - drag.y0)
         const box =
-          w < 8 || h < 8
+          Math.max(w, h) * drag.ratio < CLICK_PX
             ? defaultBox(drag.page, drag.x0, drag.y0, shape)
             : clampBox({ x: Math.min(drag.x0, drag.x1), y: Math.min(drag.y0, drag.y1), width: w, height: h }, size.width, size.height)
         const r = newRegion(drag.page, box, shape)
         update((d) => ({ ...d, customCodes: { regions: [...d.customCodes.regions, r] } }))
         setSelKey(`custom:${r.id}`)
         setTool('select')
+      } else if (drag.kind === 'move' && !drag.moved) {
+        // 单击（未拖动）框：选中并试听
+        const key = drag.key
+        setPlayReq((r) => ({ key, n: (r && r.key === key ? r.n : 0) + 1 }))
       }
       setDrag(null)
     }
@@ -446,7 +531,11 @@ export default function EditorPage() {
         e.preventDefault()
         deleteBox(sel)
       } else if (e.key === 'Escape') {
-        if (tool !== 'select') setTool('select')
+        if (tool !== 'select' || drag?.kind === 'create') {
+          // 取消绘制：丢弃正在拖出的区域并退出绘制模式
+          if (drag?.kind === 'create') setDrag(null)
+          setTool('select')
+        }
         else if (showExport) setShowExport(false)
         else if (selKey) setSelKey(null)
         else back()
@@ -505,7 +594,7 @@ export default function EditorPage() {
             onClick={() => update((d) => ({ ...d, aux: { ...d.aux, enabled: !d.aux.enabled } }))}
             className={`relative h-5 w-9 rounded-full transition ${data?.aux.enabled ? 'bg-indigo-600' : 'bg-slate-300'}`}
           >
-            <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition ${data?.aux.enabled ? 'left-4.5' : 'left-0.5'}`} />
+            <span className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${data?.aux.enabled ? 'translate-x-4' : ''}`} />
           </button>
         </label>
         <button
@@ -524,6 +613,9 @@ export default function EditorPage() {
           <Share2 size={14} /> 导出点读包
         </button>
         {showExport && <ExportPanel projectId={id} beforeExport={() => (dirty ? save() : Promise.resolve())} onClose={() => setShowExport(false)} />}
+        {data?.aux.enabled && plan?.error && (
+          <div className="absolute top-full right-4 z-30 mt-1 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700">{plan.error}</div>
+        )}
       </header>
 
       {!data || !doc ? (
@@ -532,7 +624,16 @@ export default function EditorPage() {
         </div>
       ) : (
         <div className="flex min-h-0 flex-1">
-          <SettingsPanel aux={data.aux} audioMode={mode} tool={tool} onTool={setTool} onChange={(aux) => update((d) => ({ ...d, aux }))} />
+          <SettingsPanel
+            aux={data.aux}
+            audioMode={mode}
+            tool={tool}
+            onTool={setTool}
+            onChange={(aux) => update((d) => ({ ...d, aux }))}
+            bookPageMm={sizes[0] ? { w: Math.round((sizes[0].width * 25.4) / 144), h: Math.round((sizes[0].height * 25.4) / 144) } : null}
+            showCodes={showCodes}
+            onShowCodes={setShowCodes}
+          />
 
           {mode === 'multi' && data.mapping && (
             <aside className="flex w-56 shrink-0 flex-col border-r border-[#e8e4dc] bg-white">
@@ -570,10 +671,17 @@ export default function EditorPage() {
 
           <main className="flex min-w-0 flex-1 flex-col">
             <div ref={scrollRef} className={`min-h-0 flex-1 overflow-auto bg-slate-100 py-6 ${tool !== 'select' ? 'cursor-crosshair' : ''}`}>
+              {tool !== 'select' && (
+                <div className="sticky top-0 z-40 mx-auto -mt-6 mb-2 w-fit rounded-b-lg bg-slate-800/90 px-4 py-1.5 text-xs text-white shadow">
+                  按住拖动画出区域，松开完成；Esc 取消
+                </div>
+              )}
               <div className="flex flex-col items-center gap-6">
                 {sizes.map((size, i) => {
                   const page = i + 1
                   const ratio = displayWidth / size.width
+                  const pageRegion = plan?.pageRegions.get(page)
+                  const showSticker = !data.aux.entryBoxKey && (data.aux.entryPlacement === 'all' || page === 1)
                   return (
                     <div key={page} className="flex flex-col items-center gap-1">
                       <div className="text-xs text-slate-400">第 {page} 页</div>
@@ -584,6 +692,13 @@ export default function EditorPage() {
                         displayWidth={displayWidth}
                         onPointerDown={onPageDown(page, ratio)}
                       >
+                        {data.aux.enabled && pageRegion && <div className="pointer-events-none absolute inset-0" style={DOT_BG} />}
+                        {showCodes && pageRegion && (
+                          <div className="pointer-events-none absolute top-1 left-1 z-20 rounded bg-slate-800/85 px-1 text-[10px] leading-4 text-white">
+                            整页 {pageRegion.code}
+                          </div>
+                        )}
+                        {showSticker && <EntrySticker aux={data.aux} displayWidth={displayWidth} displayHeight={size.height * ratio} />}
                         <div
                           className="absolute inset-0"
                           onDragOver={(e) => {
@@ -599,31 +714,58 @@ export default function EditorPage() {
                             const active = b.key === selKey
                             const ex = excluded.has(b.key)
                             const entry = data.aux.entryBoxKey === b.key
-                            const color =
-                              b.kind === 'custom' ? 'border-sky-600 bg-sky-600/15 border-dashed' : b.kind === 'multi' ? 'border-violet-500 bg-violet-500/10' : 'border-emerald-500 bg-emerald-500/10'
+                            // 所属导出区域：整页区域的点阵画在页面层，这里只画框级区域
+                            const region = ex ? undefined : plan?.byBoxKey.get(b.key)
+                            const boxRegion = region && !region.boxKey.endsWith(':page') ? region : undefined
+                            const code = showCodes ? boxRegion?.code : undefined
+                            const color = ex
+                              ? 'border-dashed border-slate-400 bg-slate-400/10'
+                              : b.kind === 'custom'
+                                ? 'border-sky-600 bg-sky-600/15 border-dashed'
+                                : b.kind === 'multi'
+                                  ? 'border-violet-500 bg-violet-500/10'
+                                  : 'border-rose-400 bg-rose-400/10'
+                            const deleteTitle = b.kind === 'sentence' ? '不赋码（Delete）' : b.kind === 'multi' ? '移除放置（Delete）' : '删除区域（Delete）'
                             return (
                               <div
                                 key={b.key}
                                 data-box={b.key}
                                 title={b.text}
-                                onPointerDown={onBoxDown(b, ratio, false)}
+                                onPointerDown={onBoxDown(b, ratio)}
                                 onDragEnter={() => setDragOverKey(b.key)}
                                 onDragLeave={() => setDragOverKey((k) => (k === b.key ? null : k))}
-                                className={`absolute border ${color} ${b.shape === 'ellipse' ? 'rounded-full' : 'rounded-sm'} ${active ? 'z-10 border-[3px] !border-red-500' : ''} ${ex ? 'opacity-40' : ''} ${dragOverKey === b.key ? 'ring-2 ring-indigo-400' : ''} cursor-move`}
-                                style={boxStyle(b.box, ratio)}
+                                className={`absolute border ${color} ${b.shape === 'ellipse' ? 'rounded-full' : 'rounded-sm'} ${active ? 'z-10 !border-rose-600 shadow-[0_0_0_1px_rgba(225,29,72,.6)]' : ''} ${dragOverKey === b.key ? 'ring-2 ring-indigo-400' : ''} cursor-move`}
+                                style={{ ...boxStyle(b.box, ratio), ...(data.aux.enabled && boxRegion ? DOT_BG : null) }}
                               >
-                                {(entry || data.alignment.repeatCounts?.[b.key] || data.customAudio.entries[b.key]) && (
+                                {(entry || data.alignment.repeatCounts?.[b.key] || data.customAudio.entries[b.key] || code != null) && (
                                   <div className="pointer-events-none absolute -top-4 left-0 flex gap-0.5 text-[10px] leading-3 whitespace-nowrap">
+                                    {code != null && <span className="rounded bg-slate-800/85 px-1 text-white">{code}</span>}
                                     {entry && <span className="rounded bg-amber-500 px-1 text-white">入口</span>}
                                     {data.alignment.repeatCounts?.[b.key] && <span className="rounded bg-slate-700 px-1 text-white">×{data.alignment.repeatCounts[b.key]}</span>}
                                     {data.customAudio.entries[b.key] && <span className="rounded bg-indigo-600 px-1 text-white">自定义音</span>}
                                   </div>
                                 )}
-                                {active && (
-                                  <div
-                                    onPointerDown={onBoxDown(b, ratio, true)}
-                                    className="absolute -right-1.5 -bottom-1.5 h-3 w-3 cursor-se-resize rounded-sm border border-white bg-red-500"
-                                  />
+                                {active && tool === 'select' && (
+                                  <>
+                                    {HANDLES.map((h) => (
+                                      <div
+                                        key={h}
+                                        onPointerDown={onBoxDown(b, ratio, h)}
+                                        className={`absolute z-20 h-3 w-3 rounded-[3px] border border-slate-600 bg-white ${HANDLE_POS[h]}`}
+                                      />
+                                    ))}
+                                    <button
+                                      title={deleteTitle}
+                                      onPointerDown={(e) => e.stopPropagation()}
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        deleteBox(b)
+                                      }}
+                                      className="absolute top-1 right-1 z-30 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white shadow hover:bg-red-600"
+                                    >
+                                      <X size={11} strokeWidth={3} />
+                                    </button>
+                                  </>
                                 )}
                               </div>
                             )
@@ -669,6 +811,7 @@ export default function EditorPage() {
                 onRepeat={setRepeat}
                 onUploadAudio={uploadAudio}
                 onRemoveAudio={removeAudio}
+                playSignal={playReq && playReq.key === sel.key ? playReq.n : 0}
               />
             )}
           </main>

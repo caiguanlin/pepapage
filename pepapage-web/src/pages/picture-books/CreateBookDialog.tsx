@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
-import { AlertTriangle, AudioLines, BookOpen, Cloud, Cpu, Loader2, Music, Pause, Play, X } from 'lucide-react'
+import { AlertTriangle, AudioLines, BookOpen, Cloud, Cpu, Loader2, Music, Pause, Play, Sparkles, X } from 'lucide-react'
 import { projectApi, uploadToOss } from '../../api/books'
 import type { AudioMode } from '../../api/types'
 import { IMAGE_EXT, imagesToPdf, naturalSort, titleFromImages } from './imagesToPdf'
@@ -102,16 +102,21 @@ export default function CreateBookDialog({ open, folderId, onClose, onCreated }:
       setError('已不再支持 EPUB，请使用 PDF 或图片作为书籍源')
       return
     }
-    const pdf = files.find((f) => /\.pdf$/i.test(f.name) || f.type === 'application/pdf')
-    if (pdf) {
-      setBook(pdf)
+    // 校验规则与错误文字照原版主进程 select-book-source（main.js 1014–1088）
+    const pdfCount = files.filter((f) => /\.pdf$/i.test(f.name) || f.type === 'application/pdf').length
+    if (pdfCount > 0) {
+      if (files.length > 1 || pdfCount > 1) {
+        setError('PDF 请一次选择一个（图片才可多选，且不要与 PDF 混选）')
+        return
+      }
+      setBook(files[0])
       return
     }
-    const images = files.filter((f) => IMAGE_EXT.test(f.name))
-    if (images.length === 0) {
-      setError('请选择 PDF 或图片文件（jpg / png / webp / bmp / gif / tiff）')
+    if (!files.every((f) => IMAGE_EXT.test(f.name))) {
+      setError('仅支持 PDF / 图片（.jpg .jpeg .png .webp .bmp .gif .tif .tiff）')
       return
     }
+    const images = files
     setComposing(true)
     setBookNote(`正在合成 PDF 0/${images.length}…`)
     try {
@@ -436,7 +441,12 @@ export default function CreateBookDialog({ open, folderId, onClose, onCreated }:
                   />
                   <span className="w-10 text-right font-mono">{speed.toFixed(1)}x</span>
                 </div>
-                <p className="text-xs text-slate-400">识别完成后需在卡片上「去校对」确认文字，再开始配音</p>
+                <div className="flex items-center gap-2 rounded-lg border border-emerald-100 bg-emerald-50/50 px-3 py-2">
+                  <Sparkles size={12} className="shrink-0 text-emerald-500" />
+                  <p className="text-[10px] leading-relaxed text-emerald-700">
+                    本地 KittenTTS 按 OCR 出的句子逐句合成 · 离线运行 · <span className="font-bold">免费</span>
+                  </p>
+                </div>
               </div>
             )}
           </section>

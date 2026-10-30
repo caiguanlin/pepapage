@@ -131,8 +131,10 @@ def align(ocr: dict[str, Any], lrc_rows: list[dict[str, Any]], words: list[dict[
         if res["matchedCount"] > 0:
             # 词级未命中的句子用行级补；补位必须保持时间单调，且不能与词级已匹配句的时间段重叠
             # （否则同一字幕行会被多个句子重复使用，出现多句 start=0 的错误）
+            # 补位的同时按行级时段给词均分时间，words 下标与 OCR 句一一对应（als[k] 即 sentences[k]）
             line = align_lines(ocr, lrc_rows)
             als = res["alignments"]
+            sentences = ocr.get("sentences") or []
             word_hit = [a["start"] >= 0 for a in als]
             for k, a in enumerate(als):
                 la = line["alignments"][k]
@@ -144,15 +146,37 @@ def align(ocr: dict[str, Any], lrc_rows: list[dict[str, Any]], words: list[dict[
                 overlaps = any(word_hit[i] and als[i]["start"] < la["end"] and als[i]["end"] > la["start"]
                                for i in range(len(als)))
                 if la["start"] >= prev_end - 0.05 and la["end"] <= next_start + 0.05 and not overlaps:
-                    a.update(start=la["start"], end=la["end"], confidence=la["confidence"])
+                    a.update(start=la["start"], end=la["end"], confidence=la["confidence"],
+                             words=_spread_words(sentences[k], la["start"], la["end"], la["confidence"]))
                     res["matchedCount"] += 1
             return res
     return align_lines(ocr, lrc_rows)
 
 
+def _spread_words(sentence: dict[str, Any], start: float, end: float, confidence: float) -> list[dict[str, Any]]:
+    """行级补位句的词时间：[start,end] 按可计数词均分；不可计数的词保持 -1。下标与 OCR 句 words 对应。"""
+    words = sentence.get("words") or [{"text": t} for t in (sentence.get("text") or "").split()]
+    countable = [bool(norm_word(w.get("text", ""))) for w in words]
+    n = sum(countable)
+    step = (end - start) / n if n else 0.0
+    out, j = [], 0
+    for c in countable:
+        if c:
+            ws = start + step * j
+            we = end if j == n - 1 else start + step * (j + 1)
+            out.append({"start": round(ws, 3), "end": round(we, 3), "confidence": confidence})
+            j += 1
+        else:
+            out.append({"start": -1, "end": -1, "confidence": 0})
+    return out
+
+
 # ---------------------------------------------------------------- 页映射
 def page_mapping(ocr: dict[str, Any], lrc_rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """字幕行 → 页（均 0 起始）：bigram 覆盖率 + 单调 DP，再精修每页末尾最多 3 行。"""
+    """字幕行 → 页（均 0 起始）：bigram 覆盖率 + 单调 DP，再精修每页末尾最多 3 行。
+
+    原版结构：{version, lineCount, pageCount, mappings:{"<行号>": 页}, tailRefinedCount}。
+    """
     pages = ocr.get("pages") or []
     n_pages = len(pages)
     page_bg: list[set[str]] = []
@@ -162,7 +186,7 @@ def page_mapping(ocr: dict[str, Any], lrc_rows: list[dict[str, Any]]) -> dict[st
         page_bg.append(bigrams(text))
     n = len(lrc_rows)
     if n == 0 or n_pages == 0:
-        return {"version": 1, "lineCount": n, "pageCount": n_pages, "mappings": [], "tailRefinedCount": 0}
+        return {"version": 1, "lineCount": n, "pageCount": n_pages, "mappings": {}, "tailRefinedCount": 0}
     cov = [[coverage(r.get("text", ""), bg) for bg in page_bg] for r in lrc_rows]
     neg = float("-inf")
     dp = [[neg] * n_pages for _ in range(n)]
@@ -192,21 +216,51 @@ def page_mapping(ocr: dict[str, Any], lrc_rows: list[dict[str, Any]]) -> dict[st
                         path[k] = page + 1
                         refined += 1
                 break
-    mappings = [{"lineIndex": i, "pageIndex": path[i], "start": round(r["start"], 3), "end": round(r["end"], 3),
-                 "text": r.get("text", ""), "score": round(cov[i][path[i]], 3)} for i, r in enumerate(lrc_rows)]
+    mappings = {str(i): path[i] for i in range(n)}
     return {"version": 1, "lineCount": n, "pageCount": n_pages, "mappings": mappings, "tailRefinedCount": refined}
 
 
+LINE_OCR_THRESHOLD = 0.6
+
+
 def line_ocr_mapping(ocr: dict[str, Any], lrc_rows: list[dict[str, Any]], alignment: dict[str, Any]) -> dict[str, Any]:
-    """ASR 行 → 与其时间重叠的 OCR 句（sentenceIndex 0 起始）。"""
-    al = [a for a in alignment.get("alignments") or [] if a.get("start", -1) >= 0]
-    mappings = []
+    """字幕行 → 文本最相似的 OCR 句（sentenceIndex 0 起始）。
+
+    分数为 token 序列相似度；该句在 alignment 里的时段与行重叠时加 0.1（上限 1）。
+    取最高分，同分取 sentenceIndex 最小者；低于 LINE_OCR_THRESHOLD 视为未命中。
+    entries[].pageIndex 为 0 起始（OCR 句 pageIndex - 1），与页映射一致；
+    这个起始值未经原版样本验证（样本里只有 -1）。未命中写 sentenceIndex=-1、pageIndex=-1、score=0。
+    """
+    sentences = ocr.get("sentences") or []
+    stoks = [tokens(s.get("text", "")) for s in sentences]
+    spans = {a["sentenceIndex"]: (a["start"], a["end"]) for a in alignment.get("alignments") or []
+             if a.get("start", -1) >= 0 and a.get("end", -1) >= 0}
+    entries = []
+    matched = 0
     for i, r in enumerate(lrc_rows):
-        hit = [a["sentenceIndex"] for a in al if a["start"] < r["end"] and a["end"] > r["start"]]
-        mappings.append({"lineIndex": i, "start": round(r["start"], 3), "end": round(r["end"], 3),
-                         "text": r.get("text", ""), "sentenceIndexes": hit})
-    return {"version": 1, "lineCount": len(lrc_rows), "sentenceCount": len(ocr.get("sentences") or []),
-            "mappings": mappings}
+        ltoks = tokens(r.get("text", ""))
+        best: dict[str, Any] | None = None
+        best_score = 0.0
+        if ltoks:
+            for k, s in enumerate(sentences):
+                if not stoks[k]:
+                    continue  # 两个空序列的 ratio 为 1，必须跳过
+                score = difflib.SequenceMatcher(None, ltoks, stoks[k]).ratio()
+                span = spans.get(s.get("sentenceIndex"))
+                if span and span[0] < r["end"] and span[1] > r["start"]:
+                    score = min(1.0, score + 0.1)
+                if best is None or score > best_score or (
+                        score == best_score and s["sentenceIndex"] < best["sentenceIndex"]):
+                    best, best_score = s, score
+        if best is not None and best_score >= LINE_OCR_THRESHOLD:
+            matched += 1
+            page = best.get("pageIndex")
+            entries.append({"lineIndex": i, "sentenceIndex": best["sentenceIndex"],
+                            "pageIndex": page - 1 if isinstance(page, int) else -1, "score": round(best_score, 3)})
+        else:
+            entries.append({"lineIndex": i, "sentenceIndex": -1, "pageIndex": -1, "score": 0})
+    return {"version": 1, "lineCount": len(lrc_rows), "sentenceCount": len(sentences), "matchedCount": matched,
+            "entries": entries}
 
 
 PRESERVED_KEYS = ("manualRanges", "excludedBoxKeys", "repeatCounts", "boxOverrides")

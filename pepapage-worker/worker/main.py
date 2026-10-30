@@ -17,6 +17,10 @@ from .server_client import ServerClient
 
 log = logging.getLogger("worker")
 
+BLOCK_MS = 5000
+# redis-py 8 默认 socket 读超时 5 秒，与阻塞读等长，远程 Redis 加上网络延迟就会超时；读超时必须大于阻塞时长
+SOCKET_TIMEOUT = 30
+
 
 def main() -> None:
     load_dotenv()
@@ -25,7 +29,8 @@ def main() -> None:
     stream = os.getenv("TASK_STREAM", "pepapage:tasks")
     group = os.getenv("CONSUMER_GROUP", "book-workers")
     consumer = os.getenv("CONSUMER_NAME", "worker-1")
-    r = redis.Redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"), decode_responses=True)
+    r = redis.Redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"), decode_responses=True,
+                             socket_timeout=SOCKET_TIMEOUT)
     server = ServerClient(os.getenv("SERVER_BASE_URL", "http://localhost:8080"), os.getenv("WORKER_TOKEN", ""))
 
     try:
@@ -50,9 +55,9 @@ def main() -> None:
     while not stopping:
         start_id = "0" if pending_first else ">"
         try:
-            resp = r.xreadgroup(group, consumer, {stream: start_id}, count=1, block=5000)
-        except redis.ConnectionError:
-            log.warning("Redis 连接失败，5 秒后重试")
+            resp = r.xreadgroup(group, consumer, {stream: start_id}, count=1, block=BLOCK_MS)
+        except (redis.ConnectionError, redis.TimeoutError):
+            log.warning("Redis 连接失败或读取超时，5 秒后重试", exc_info=True)
             time.sleep(5)
             continue
         messages = resp[0][1] if resp else []

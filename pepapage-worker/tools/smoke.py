@@ -1,7 +1,8 @@
 """端到端冒烟（本地目录存储，不依赖 server/OSS）：
-  1) single：夹具 PDF + 用 SAPI 朗读 PDF 文字生成的音频 → book_full 四步 → book_realign → book_export(oid_zip/pdf)
+  1) single：夹具 PDF + 用 KittenTTS 朗读 PDF 文字生成的音频 → book_full 四步 → book_realign → book_export(oid_zip/pdf)
   2) single：夹具 PDF + 夹具 mp4 音轨（内容与书不符，预期对齐如实失败）
-  3) tts：book_full（停在待校对）→ book_tts → book_export
+  3) tts：book_full（停在待校对）→ book_tts（KittenTTS 逐句配音）→ book_export
+前提：装好 requirements.txt 和 kittenml（安装方法见该文件末尾），KittenTTS 模型放在 KITTEN_MODEL_DIR。
 运行：cd pepapage-worker && python tools/smoke.py
 """
 from __future__ import annotations

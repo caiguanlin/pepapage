@@ -1,0 +1,195 @@
+{
+  "/api/generate-subtitles": [
+    759622
+  ],
+  "/api/subtitle-status/${n}": [
+    760755
+  ],
+  "/api/process-video": [
+    761349
+  ],
+  "/api/media-download": [
+    762681,
+    763330,
+    4070805
+  ],
+  "/api/media-info": [
+    763057
+  ],
+  "/api/media-download-status/${n}": [
+    763696
+  ],
+  "/api/extract-audio": [
+    763879
+  ],
+  "/api/convert-audio": [
+    764220
+  ],
+  "/api/cloud-asr-postprocess": [
+    764418
+  ],
+  "/api/extension-download": [
+    764731
+  ],
+  "/api/broadcast": [
+    792699,
+    792738
+  ],
+  "/api/models": [
+    984521
+  ],
+  "/api/models/select": [
+    984642
+  ],
+  "/api/models/${encodeURIComponent(n)}": [
+    984844
+  ],
+  "/api/models/download": [
+    984987
+  ],
+  "/api/whisper/config": [
+    985194
+  ],
+  "/api/dictionary": [
+    1634572
+  ],
+  "/api/dictionary/cloud/batch": [
+    1634594
+  ],
+  "/api/proxy-image?url=${encodeURIComponent(n)}": [
+    1643081,
+    1790462,
+    1899998,
+    2044397,
+    3166691
+  ],
+  "/api/pixabay-key": [
+    1788503
+  ],
+  "/api/image-search?q=${encodeURIComponent(n)}": [
+    1789775
+  ],
+  "/api/image-download?url=${encodeURIComponent(n)}": [
+    1790135
+  ],
+  "/api/translate-subtitles": [
+    1797128,
+    1850754,
+    1922162,
+    1924038,
+    2690753,
+    2778460,
+    3260946,
+    3578251
+  ],
+  "/api/proxy-image?url=${encodeURIComponent(Nt)}": [
+    1801338,
+    1803597
+  ],
+  "/api/proxy-image": [
+    1803465,
+    1899837,
+    2044236,
+    2044965,
+    3166592
+  ],
+  "/api/proxy-image?url=${encodeURIComponent(Nt.url)}": [
+    1814465,
+    1815883,
+    1818066
+  ],
+  "/api/models/download-status": [
+    1846897
+  ],
+  "/api/project-files": [
+    1899871,
+    2044270
+  ],
+  "/api/diarize": [
+    2691881,
+    3219533
+  ],
+  "/api/project-files/${n}/export-audio": [
+    2700986
+  ],
+  "/api/state": [
+    2771997
+  ],
+  "/api/rendered-html": [
+    2774169
+  ],
+  "/api/dlna/stop": [
+    3008857
+  ],
+  "/api/dlna/start": [
+    3009075
+  ],
+  "/api/dlna-status/${Ge}": [
+    3009440
+  ],
+  "/api/proxy-image?url=${encodeURIComponent(t.thumbnail)}": [
+    3040855
+  ],
+  "/api/proxy-image?url=${encodeURIComponent(R)}": [
+    3226654
+  ],
+  "/api/agnes/sticker": [
+    3230180,
+    3242865
+  ],
+  "/api/agnes/generate": [
+    3231113
+  ],
+  "/api/agnes/analyze": [
+    3231837
+  ],
+  "/api/agnes/words": [
+    3235365
+  ],
+  "/api/agnes/mindmap": [
+    3236320
+  ],
+  "/api/agnes/storygrid": [
+    3237301
+  ],
+  "/api/proxy-image?url=${encodeURIComponent(zt.url)}": [
+    3251096
+  ],
+  "/api/project-files/${encodeURIComponent(t)}/export-audio-zip": [
+    3270171
+  ],
+  "/api/client-log": [
+    3737484
+  ],
+  "/api/project-files/${encodeURIComponent(r)}/export-audio-zip": [
+    3745718
+  ],
+  "/api/book-oid-stage": [
+    3748108
+  ],
+  "/api/video-trim/upload": [
+    3936244,
+    3961894,
+    3974804
+  ],
+  "/api/video-trim/remux-preview": [
+    3936557
+  ],
+  "/api/video-trim/preview": [
+    3936589
+  ],
+  "/api/video-trim/split": [
+    3939334,
+    3963733
+  ],
+  "/api/video-trim/download/${encodeURIComponent(de)}": [
+    3939977
+  ],
+  "/api/video-trim/download-all": [
+    3940226,
+    3964536
+  ],
+  "/api/audio-merge/merge": [
+    3976471
+  ]
+}

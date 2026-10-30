@@ -1,0 +1,126 @@
+[
+  {
+    "path": "dictionary.db",
+    "bytes": 77664256
+  },
+  {
+    "path": "oid-lib.dat",
+    "bytes": 20774018
+  },
+  {
+    "path": "app.asar.unpacked/dist-electron/electron/workers/alignment.worker.jsc",
+    "bytes": 22376
+  },
+  {
+    "path": "app.asar.unpacked/dist-electron/electron/workers/phrase.worker.jsc",
+    "bytes": 19088
+  },
+  {
+    "path": "app.asar.unpacked/dist-electron/electron/workers/translation.worker.jsc",
+    "bytes": 20256
+  },
+  {
+    "path": "bin/ggml-tiny.bin",
+    "bytes": 77691713
+  },
+  {
+    "path": "models/alignment/facebook/wav2vec2-base-960h/config.json",
+    "bytes": 2170
+  },
+  {
+    "path": "models/alignment/facebook/wav2vec2-base-960h/model.onnx",
+    "bytes": 377798305
+  },
+  {
+    "path": "models/alignment/facebook/wav2vec2-base-960h/preprocessor_config.json",
+    "bytes": 224
+  },
+  {
+    "path": "models/alignment/facebook/wav2vec2-base-960h/special_tokens_map.json",
+    "bytes": 102
+  },
+  {
+    "path": "models/alignment/facebook/wav2vec2-base-960h/tokenizer_config.json",
+    "bytes": 1229
+  },
+  {
+    "path": "models/alignment/facebook/wav2vec2-base-960h/vocab.json",
+    "bytes": 392
+  },
+  {
+    "path": "models/diarization/embedding-resnet34.onnx",
+    "bytes": 26544828
+  },
+  {
+    "path": "models/diarization/plda-params-vbx.json",
+    "bytes": 1032937
+  },
+  {
+    "path": "models/diarization/segmentation-3.0.onnx",
+    "bytes": 5916343
+  },
+  {
+    "path": "models/kitten-cache-micro/config.json",
+    "bytes": 493
+  },
+  {
+    "path": "models/kitten-cache-micro/kitten_tts_micro_v0_8.onnx",
+    "bytes": 41384970
+  },
+  {
+    "path": "models/kitten-cache-micro/voices.npz",
+    "bytes": 3278902
+  },
+  {
+    "path": "models/ocr/pp-doclayout-plus-l/PP-DocLayout_plus-L_infer.onnx",
+    "bytes": 129736329
+  },
+  {
+    "path": "models/ocr/pp-doclayout-s/PP-DocLayout-S_infer.onnx",
+    "bytes": 4914586
+  },
+  {
+    "path": "models/ocr/pp-doclayout-s/PP-DocLayout-S_inference.yml",
+    "bytes": 1688
+  },
+  {
+    "path": "models/ocr/pp-ocrv6-small/PP-OCRv6_small_det_infer.onnx",
+    "bytes": 9880512
+  },
+  {
+    "path": "models/ocr/pp-ocrv6-small/PP-OCRv6_small_rec_infer.onnx",
+    "bytes": 21159378
+  },
+  {
+    "path": "models/ocr/pp-ocrv6-small/ppocrv6_dict.txt",
+    "bytes": 93655
+  },
+  {
+    "path": "models/ocr/slanet-table/SLANet_infer.onnx",
+    "bytes": 7782138
+  },
+  {
+    "path": "models/translation/Xenova/opus-mt-en-zh/config.json",
+    "bytes": 1566
+  },
+  {
+    "path": "models/translation/Xenova/opus-mt-en-zh/generation_config.json",
+    "bytes": 309
+  },
+  {
+    "path": "models/translation/Xenova/opus-mt-en-zh/tokenizer.json",
+    "bytes": 6641071
+  },
+  {
+    "path": "models/translation/Xenova/opus-mt-en-zh/tokenizer_config.json",
+    "bytes": 294
+  },
+  {
+    "path": "models/translation/Xenova/opus-mt-en-zh/onnx/decoder_model_merged_quantized.onnx",
+    "bytes": 60212804
+  },
+  {
+    "path": "models/translation/Xenova/opus-mt-en-zh/onnx/encoder_model_quantized.onnx",
+    "bytes": 52899742
+  }
+]

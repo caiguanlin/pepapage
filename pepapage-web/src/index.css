@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+@theme {
+  --color-shell: #262320;
+  --color-shell-border: #3a352f;
+  --color-shell-text: #f3efe7;
+  --color-shell-muted: #cfc8bb;
+  --color-shell-icon: #9a9184;
+  --color-shell-version: #6f675c;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  min-width: 1024px;
+  min-height: 700px;
+  font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+/* 原版自定义滚动条：6px、圆角 10px */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-thumb {
+  background: #94a3b84d;
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b880;
+}

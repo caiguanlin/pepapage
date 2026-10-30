@@ -1,0 +1,19 @@
+# 原版安装包与逆向产物：体积大（约 4 GB），含第三方受版权保护的代码、模型和 .env，不入库
+*.exe
+analysis/app/
+analysis/asar/
+analysis/installer/
+analysis/runtime-profile/
+analysis/tools/
+analysis/rea-evidence.json
+analysis/asar-inventory.json
+
+# 测试素材（书页、音频）可能有版权，不入库
+素材/
+
+# IDE / 系统
+.vscode/
+.idea/
+*.iml
+.DS_Store
+Thumbs.db

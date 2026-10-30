@@ -1,0 +1,14 @@
+# 复制为 application-local.yml 后填写，本文件可提交，application-local.yml 不要提交
+spring:
+  datasource:
+    password: your-mysql-password
+  data:
+    redis:
+      password:
+
+pepapage:
+  oss:
+    endpoint: https://oss-cn-hangzhou.aliyuncs.com
+    bucket: your-bucket-name
+    access-key-id: your-ram-user-ak
+    access-key-secret: your-ram-user-sk

@@ -1,0 +1,9 @@
+redis>=5.0
+requests>=2.31
+python-dotenv>=1.0
+oss2>=2.18
+# 阶段 3 接入处理管线时再启用：
+# pymupdf
+# paddleocr
+# faster-whisper
+# onnxruntime

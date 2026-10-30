@@ -19,6 +19,7 @@ from . import align as align_mod
 from . import asr as asr_mod
 from . import audio as audio_mod
 from . import ocr as ocr_mod
+from . import subtitles as subs_mod
 from .storage import OssStorage, Storage, project_prefix
 
 log = logging.getLogger(__name__)
@@ -116,24 +117,28 @@ def step_transcription(ctx: Ctx) -> None:
     res = asr_mod.transcribe(wav, ctx.state.get("duration"), progress=ctx.progress_cb("transcription"))
     if not res["segments"]:
         raise StepError("语音识别结果为空（音频中未识别到语音）")
-    ctx.storage.write_bytes("subtitles.lrc", asr_mod.to_lrc(res["segments"]).encode("utf-8"), "text/plain")
-    ctx.storage.write_json("word-timestamps.json", {"version": 1, "model": asr_mod.model_name(),
-                                                    "language": res.get("language"), "words": res["words"],
-                                                    "segments": res["segments"]})
+    # 与原版一致：subtitles.lrc 内容是 SRT；word-timestamps.json 顶层只有 version 和按行号分组的 words
+    ctx.storage.write_bytes("subtitles.lrc", subs_mod.to_srt(res["segments"]).encode("utf-8"), "text/plain")
+    ctx.storage.write_json("word-timestamps.json", {"version": 1, "words": res["words"]})
     ctx.report(metadataPatch={"asrModel": f"faster-whisper-{asr_mod.model_name()}"})
 
 
 def run_single_alignment(storage: Storage) -> dict[str, Any]:
-    """读原始 book-ocr.json + subtitles.lrc + word-timestamps.json，写三份对齐文件。返回 alignment。"""
+    """读原始 book-ocr.json + subtitles.lrc + word-timestamps.json，写三份对齐文件。返回 alignment。
+
+    subtitles.lrc 按内容兼容 SRT（新）与 LRC（旧）；words 兼容按行分组（新）与平铺数组（旧）。
+    """
     ocr = storage.read_json("book-ocr.json")
     if not ocr:
         raise StepError("缺少 book-ocr.json")
     if not storage.exists("subtitles.lrc"):
         raise StepError("缺少 subtitles.lrc")
-    rows = asr_mod.parse_lrc(storage.read_bytes("subtitles.lrc").decode("utf-8"))
+    rows = subs_mod.parse_subtitles(storage.read_bytes("subtitles.lrc").decode("utf-8-sig"))
+    if not rows:
+        raise StepError("subtitles.lrc 无法解析出字幕行（内容既不是 SRT 也不是 LRC）")
     wt = storage.read_json("word-timestamps.json") or {}
-    words = wt.get("words") if isinstance(wt, dict) else None
-    result = align_mod.align(ocr, rows, words)
+    words = subs_mod.flatten_words(wt.get("words")) if isinstance(wt, dict) else []
+    result = align_mod.align(ocr, rows, words or None)
     result = align_mod.merge_preserved(result, storage.read_json("book-alignment.json"))
     storage.write_json("book-alignment.json", result)
     storage.write_json("book-page-mapping.json", align_mod.page_mapping(ocr, rows))

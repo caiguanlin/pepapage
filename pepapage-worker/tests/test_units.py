@@ -1,7 +1,7 @@
 """纯函数单元测试（不依赖 server/OSS）。运行：cd pepapage-worker && python -m pytest -q tests"""
 from __future__ import annotations
 
-from worker import align, asr, export, ocr
+from worker import align, export, ocr
 
 
 def _line(text, x=0, y=0, w=100, h=20):
@@ -56,11 +56,6 @@ def test_preserve_manual_keys():
            "boxOverrides": {}, "alignments": []}
     new = align.merge_preserved({"alignments": [1]}, old)
     assert new["manualRanges"] and new["excludedBoxKeys"] == ["x"] and new["alignments"] == [1]
-
-
-def test_lrc_roundtrip():
-    rows = asr.parse_lrc(asr.to_lrc([{"start": 1.2, "end": 2, "text": "hi"}, {"start": 65.5, "end": 70, "text": "yo"}]))
-    assert rows[0]["start"] == 1.2 and rows[1]["start"] == 65.5 and rows[0]["end"] == 65.5
 
 
 def test_codes_dedup_and_limit():

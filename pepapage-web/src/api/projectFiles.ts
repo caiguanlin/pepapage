@@ -1,5 +1,5 @@
 import { api, ApiError } from './client'
-import type { BookExport, ProjectFileInfo, ReaderData } from './editorTypes'
+import type { BookAnalysis, BookExport, ProjectFileInfo, ReaderData } from './editorTypes'
 import type { BookProject, UploadPolicy } from './types'
 
 const enc = encodeURIComponent
@@ -36,4 +36,6 @@ export const bookActionApi = {
     api<{ exportId: string }>(`/book-projects/${id}/exports`, { method: 'POST', body: { type } }),
   getExport: (exportId: string) => api<BookExport>(`/book-exports/${exportId}`),
   reader: (id: string) => api<ReaderData>(`/book-projects/${id}/reader`),
+  /** 解析详情与编辑器右栏共用，服务端合并后返回，见 docs/team-contract.md 第 2 节。 */
+  analysis: (id: string) => api<BookAnalysis>(`/book-projects/${id}/analysis`),
 }

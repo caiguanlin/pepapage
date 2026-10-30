@@ -506,7 +506,7 @@ export default function PictureBooksPage() {
           onSubmit={(target) => moveItems(modal.projectIds, modal.folderIds, target)}
         />
       )}
-      {modal?.kind === 'detail' && <ProjectDetailDialog project={modal.project} onClose={() => setModal(null)} />}
+      {modal?.kind === 'detail' && <ProjectDetailDialog project={modal.project} onClose={() => setModal(null)} onChanged={load} />}
     </>
   )
 }

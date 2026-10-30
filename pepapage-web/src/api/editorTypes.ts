@@ -258,6 +258,68 @@ export interface ReaderData {
   clips?: ReaderClip[]
 }
 
+/** GET /api/book-projects/{id}/analysis：服务端合并字幕、映射、对齐、词时间与 OCR 后的解析详情。页码均 1 起始。 */
+export interface AnalysisWordTime {
+  start: number
+  end: number
+  confidence: number
+}
+
+export interface AnalysisSentence {
+  sentenceIndex: number
+  pageIndex: number
+  text: string
+  box?: Box
+  regionIndex?: number
+  /** 来自 alignment，未匹配为 -1 */
+  start: number
+  end: number
+  words?: AnalysisWordTime[]
+}
+
+export interface AnalysisBlock {
+  id: string
+  pageIndex: number
+  regionIndex: number | null
+  text: string
+  box?: Box
+  sentenceIndex: number
+  start: number
+  end: number
+  status: 'matched' | 'unmatched' | 'tts'
+  audioUrl?: string
+}
+
+export interface AnalysisLineWord {
+  text: string
+  start: number
+  end: number
+}
+
+export interface AnalysisLine {
+  index: number
+  start: number
+  end: number
+  text: string
+  words: AnalysisLineWord[]
+  /** 1 起始；无对应时为 null */
+  page: number | null
+  pageMatch: 'exact' | 'heuristic' | 'none'
+  sentenceIndex: number | null
+}
+
+export interface BookAnalysis {
+  audioMode: 'single' | 'multi' | 'tts'
+  pdfUrl: string | null
+  /** single：优先 audio.wav，其次 audioFileKey；其他模式 null */
+  audioUrl: string | null
+  pages: { index: number; width: number; height: number; sentenceStart: number; sentenceCount: number }[]
+  sentences: AnalysisSentence[]
+  blocks: AnalysisBlock[]
+  lines: AnalysisLine[]
+  counts: { pages: number; sentences: number; blocks: number; lines: number; matched: number }
+}
+
 export interface BookExport {
   id: string
   projectId: string

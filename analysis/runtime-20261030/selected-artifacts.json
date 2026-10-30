@@ -1,0 +1,37 @@
+[
+  {
+    "path": "package.json",
+    "size": 2221,
+    "sha256": "1edba412ae22bdb0edc3de735c5d6700ba7a7616d08502ceb588230351cf65c2"
+  },
+  {
+    "path": "dist/assets/index-CpWPkl9w.js",
+    "size": 4270859,
+    "sha256": "370edc610902cfe5203a8068b105e98d190408c92282578a4d88273e68aa1c66"
+  },
+  {
+    "path": "dist-electron/electron/main.js",
+    "size": 130439,
+    "sha256": "00072624097fef25e6b4d9ead3056c651fa0f798a67acb65edcbf616e339db7d"
+  },
+  {
+    "path": "dist-electron/electron/preload.js",
+    "size": 11783,
+    "sha256": "8b2d7ac23aca3e2d4a4bd8ef482e80ef93a9060d3929eef5d9037b18b4eaa1d9"
+  },
+  {
+    "path": "dist-electron/electron/lib/projectFiles.js",
+    "size": 283,
+    "sha256": "394189b205c3d1be9124cc5649bcad2651ca314e3ad21fd67435e11df4e0dfef"
+  },
+  {
+    "path": "dist-electron/electron/lib/portable.js",
+    "size": 1151,
+    "sha256": "2971169295c7b891123fc74a5794291c3f8b55f089432d1b4851653555adb79a"
+  },
+  {
+    "path": "dist-electron/electron/print/zip-book.js",
+    "size": 5705,
+    "sha256": "9f5e15bb2b65ca4fbab50fbd15400d66000c30124eec931ecb5746c97aab577c"
+  }
+]

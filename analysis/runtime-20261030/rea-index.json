@@ -1,0 +1,55 @@
+{
+  "schema": "REA-local-evidence-index/v1",
+  "reaVersion": "6.8.0",
+  "artifactSha256": "dfefd44f6eff9af2bb475cae65749a654cdc65704c4b123d4556d26a02c79844",
+  "events": [
+    {
+      "id": "ev_c62c850c29c850803708596a69d011defcadf89088c3c32c188b74fd5b666d99",
+      "operation": "inspect_electron_fuses",
+      "state": "complete",
+      "path": "rea/electron-fuses.json",
+      "bytes": 3389,
+      "sha256": "7f8f6580590eff6b730c696de5c457e226cd4344c20f2c7367c16dfe56386aa4"
+    },
+    {
+      "id": "ev_4570edcc6bd3acb30c32c800a56d0409c4f0d15afb394d8cb2537670f69e95b8",
+      "operation": "analyze_javascript_application",
+      "state": "analysis-produced-evidence-staging-cleanup-incomplete",
+      "path": "static/rea-main-evidence.json",
+      "selection": [
+        "dist-electron/electron/main.js",
+        "dist-electron/electron/preload.js",
+        "package.json",
+        "dist-electron/electron/lib/projectFiles.js",
+        "dist-electron/electron/lib/portable.js"
+      ],
+      "unselectedFileCount": 22340,
+      "limitations": [
+        "Frontend F was not in this selection.",
+        "Output was published; cleanup reported Windows EBUSY.",
+        "Automatic approval review rejected staging cleanup: blocked by policy.",
+        "A later inspect-evidence-bundle reader was rejected by REA memory admission."
+      ],
+      "bytes": 322468878,
+      "sha256": "fc521f16caf0b85732ea66c076a11033095fc50a4f05237bbc7d2d179b5a5532"
+    },
+    {
+      "id": "ev_95d6859a04095e4a2bd9de639a1c0cf75a8119a5188e4edcb34021f78354c46a",
+      "operation": "analyze_javascript_application",
+      "state": "partial-provider-timeout",
+      "path": "rea/frontend-summary.json",
+      "selection": [
+        "dist/assets/index-CpWPkl9w.js"
+      ],
+      "unselectedFileCount": 22344,
+      "timeoutMs": 300000,
+      "limitations": [
+        "The file named frontend-summary.json is a full error record including partial_observation, not a compact summary.",
+        "Do not claim completed frontend semantic analysis from this record.",
+        "The requested frontend-evidence.json output was not published."
+      ],
+      "bytes": 277747199,
+      "sha256": "b2b07d8a25e64f523c48a72b0629d96caae0916806033cf7397ab023fe8ec430"
+    }
+  ]
+}

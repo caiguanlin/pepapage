@@ -1,6 +1,6 @@
 # PepaPage 2.3.6 绘本源：数据、处理管线与导出规格
 
-分析日期：2026-10-30。本期以绘本源为实现重点，动画源只做入口占位。本文依据发布包中提取的 JavaScript 静态分析，未运行收费接口、未执行目标业务脚本，也未操作 UI。示例为字段形状示意，不是用户真实数据。后端、原生模块及硬件效果未被实际验证。
+分析日期：2026-10-30。本期以绘本源为实现重点，动画源只做入口占位。本文保留发布包静态基线，新增所选完成项目文件的只读结构验证与原版UI实际课件导出；详见 [运行补证及证据边界](runtime-20261030/README.md)。示例默认是字段形状示意，明确标“实样”的内容才来自本轮观察。收费接口、OCR/ASR/TTS生成步骤及硬件效果未验证。
 
 ## 1. 证据与实现边界
 
@@ -74,7 +74,7 @@ type BookProject = {
 
 ## 4. 输入文件与磁盘契约
 
-当前上传接受 PDF 或图片；EPUB 明确拒绝并提示使用 PDF/图片。图片扩展名包含 jpg/jpeg/png/webp/bmp/gif/tif/tiff，按自然顺序排序，转 JPEG 后逐图生成 PDF 页面。保存源文件统一名 `book.pdf`。本机 `selectBookSource` 返回源 PDF 或图片集合时，还可以带同目录音频，由上传界面自动补入。证据 F@3638000–3659000，检索 `Ace`、`selectBookSource`、`已不再支持 EPUB`。
+当前上传接受 PDF 或图片；EPUB 明确拒绝并提示使用 PDF/图片。图片扩展名包含 jpg/jpeg/png/webp/bmp/gif/tif/tiff，按自然顺序排序，转 JPEG 后逐图生成 PDF 页面。保存源文件统一名 `book.pdf`。`selectBookSource` 仅单PDF分支会扫描同目录、同basename（忽略大小写）的首个mp3/wav/m4a/aac/flac/ogg/wma；图片分支不附音频，也无目录选择。多PDF或PDF/图片混选返回错误。前端证据 F@3638000–3659000；主进程main.js第1014行的补证见 [静态核对](runtime-20261030/static-findings.md)。
 
 应用通过 `electronAPI.saveProjectFile(projectId,fileName,arrayBuffer)`、`readProjectFile`、`deleteProjectFile` 操作项目文件。可消费的媒体 URL 为：
 
@@ -82,7 +82,7 @@ type BookProject = {
 http://127.0.0.1:3000/api/project-files/<URL编码 projectId>/<URL编码 fileName>
 ```
 
-下表为**项目目录内逻辑相对路径**。物理绝对根目录由主进程决定，不能仅用前端代码认定固定为某个 AppData 路径。
+下表为**项目目录内逻辑相对路径**。主进程明文现已确认根为 `app.getPath('userData')/project-files`。Windows便携模式或可写安装目录可能覆盖userData：非便携先选同盘已存在的 `PepaPage-data`，否则安装目录 `user-data`；不满足条件则沿用系统路径。本次进程与所选项目文件实际位于 `D:/systemSoft/PepaPage/user-data/project-files`，不能将此机器路径硬编码给所有安装。见main.js第143行及静态补证。
 
 | 文件 | 产生者/用途 |
 |---|---|
@@ -90,7 +90,7 @@ http://127.0.0.1:3000/api/project-files/<URL编码 projectId>/<URL编码 fileNam
 | book-audio.<ext> | single 上传的原始音频 |
 | audio-0001.<ext> 等 | multi 上传音频，保留原扩展名；原名另存 audioFiles |
 | audio.wav | 音频转换输出；多音频识别过程中复用此文件 |
-| subtitles.lrc | single 识别结果 |
+| subtitles.lrc | single识别结果；本轮Tiny实样内容为SRT，扩展名不保证实际序列化格式 |
 | word-timestamps.json | 识别词级时间；读取方取对象的 `words` |
 | book-ocr.json | 原始 OCR、页尺寸、句子和块 |
 | book-ocr-reviewed.json | 校对后的 OCR；读取器优先选用 |
@@ -167,6 +167,20 @@ type BookOcr = {
 
 页映射先用字符串 bigram 覆盖率与单调路径，再精修每页最多末尾3行：下一页覆盖率至少 .5，且比本页高 .15 才改判。文件为 `{version:1,lineCount,pageCount,mappings,tailRefinedCount}`；mappings 的字幕行索引与目标页索引均从0开始。`book-line-ocr-mapping.json` 为 ASR 行与 OCR 句关联，精确输出类型应以实际序列化样本继续验证，不能与句对齐数组互换。
 
+**本轮实样补证**（单一Tiny完成项目，不是所有模型的完整schema）：
+
+```ts
+// word-timestamps.json：以字幕行号为键，不是一个平铺words数组
+{ version:1, words:{ [lineIndex:string]:{text:string,start:number,end:number}[] } }
+// book-line-ocr-mapping.json
+{ version:1, lineCount:number, sentenceCount:number, matchedCount:number,
+  entries:{lineIndex:number,sentenceIndex:number,pageIndex:number,score:number}[] }
+```
+
+样本13页、OCR26句/39块、字幕2条、词时间7词；alignment为word模式、26项、matchedCount2。行→OCR句文件却为matchedCount0，两项均sentenceIndex/pageIndex=-1、score0；页映射将两行都放到零起始页0。三类映射不可混用；未知/未命中索引不可当作第一页。卡片“字幕26”实为OCR句数口径，并非字幕条数。文件哈希和完整结构摘要见 [FILE-P1](runtime-20261030/project-observation.json)。
+
+实样 `subtitles.lrc` 实际是带序号、`00:00:00,940 --> 00:00:01,250` 这类区间的SRT文本，并非方括号时间戳LRC。UI读取成功且显示2条；文件名不能作为格式断言，复刻时应依据内容检测。此结论只覆盖该Tiny样本，其他模型输出格式仍需采样。
+
 ### 5.3 multi：文件名、ASR 与手动绑定
 
 文件名模式按 originalName 自然排序、忽略大小写。将文件名与 OCR 候选文本规范化，先 exact 后 fuzzy；包含匹配设最小长度阈值。候选只能使用一次；优先最短规范文本，再按候选顺序。未命中保留 null。
@@ -183,6 +197,8 @@ ASR 模式按 audioFiles 顺序逐份读入、转换、识别，拼接该文件 
 ```
 
 手动模式不要求 OCR 文本存在，用户将音频拖入页面/框区完成绑定；多音频拆分编辑可以重写 mapping 中 pageIndex/box、matchedCount。映射 `pageIndex` 沿用 OCR 的1起始，但点读编辑/导出页面数组用0起始，须在边界转换。证据 `vye` F@1003717、`_ye` F@1006002、`eSe`/`tSe`、F@3815000–3817600。
+
+此处重写已有mapping的分支不能推导为默认手动模式会创建mapping。默认multi仅准备页面元数据；手工码区/音源分别存custom-codes/custom-audio，阅读器仅消费有效audio-mapping.entries。两条链路须独立验证，见第9节。
 
 ### 5.4 无音频 TTS
 
@@ -257,6 +273,8 @@ TTS 在 OCR 后等 `ocrConfirmed:true`，未确认时留在 processing/步骤3�
 
 single 从句对齐、行句映射生成时间字幕；multi 按原音频清单排序，TTS 按 sentenceIndex 排序，解码独立音频、各声道取平均转单声道、重采样到第一段采样率后合成16bit WAV。每段累计实际解码时长生成字幕，没有词级时间。缓存 signature 仅为文件名 `join("|")`，durations 数组长度也需一致；仅同名文件内容变化时缓存是否失效是潜在差异。证据 F@1462300–1467820，`h3`、`uSe`、`hSe`、`bF`。
 
+**进入条件补证**：`hSe` 读取 `book-audio-mapping.json.entries`，跳过无pageIndex的multi条目。播放序列为空时，`h3` 对multi抛“多音频未经过模型处理，无法使用阅读器”，对tts抛“没有可用的配音音频，请先完成配音”。它不读取custom-codes/custom-audio；故completed手动multi不保证可阅读。F@1463742、1464553；该错误目前静态确认。single样本的卡片→共享阅读器→返回绘本源已经UI运行确认，尚未全面验证同步播放。
+
 ## 10. 辅码设置与点读 ZIP
 
 设置存 localStorage `auxCode:<projectId>`，与区域/音频/对齐 JSON 分开；课件包会额外带这份配置。默认值：
@@ -310,6 +328,23 @@ ZIP 主要内容：`cover.mp3`（有入口音频时）、`1/<code>.mp3` 内容�
 
 加解密、压缩成员布局、校验和及二进制兼容细节位于未恢复的主进程逻辑；preload 注释不能替代算法证据。当前可按此 manifest 设计自有导入导出，不应承诺能读写官方包。证据 F@3887264–3890500，`Rz`、`uHe`、`hHe`。
 
+### 11.1 原版实际导出样本的外层
+
+运行确认：从工作台全选→导出课件→原生“另存为”（类型“NexusOS 绘本课件 (*.nexusbookpkg)”）→导出完成，当前0积分下成功落盘。本次仅导出1个single完成项目，没有执行导入。样本本地保存在 `analysis/runtime-20261030/PAGE1-observed.nexusbookpkg`，2,234,925字节，SHA-256 `6fec253daa213db2a912a40e801f475ccb725120a36b473522c0ad0326ade4df`。文件及源书不入Git；可共享的 [外层摘要](runtime-20261030/courseware-observation.json) 保留身份和字段长度。
+
+文件可按UTF-8解析为JSON，**不是直接以ZIP签名开头**。实样形状：
+
+```ts
+{
+  version:1,
+  protection:{enabled:true,iv:string,encryptedData:string},
+  metadata:{filename:string,contentType:"application/octet-stream",
+            fileHash:string,createdAt:string}
+}
+```
+
+该样本iv长16、encryptedData长2,234,656、fileHash长44字符。外层数值version1与前端内部manifest字符串 `"1.0-book"` 分属两层，不能混用。字段名/enabled声明不构成加密算法或安全强度证明；内部载荷、fileHash算法、压缩/成员布局和往返兼容仍未知。成功课件导出也不代表收费点读ZIP已生成。
+
 ## 12. 实现顺序与未决项
 
 建议先完成 PDF/图片导入→项目文件持久化→四步状态展示→手动多音频区域→OCR校对→single对齐→TTS→辅码设置和点读 ZIP→课件包及阅读器衔接。动画数据不要复用 bookProjects 做假记录。本段是实现建议，不是原版已验证的开发顺序。
@@ -317,11 +352,11 @@ ZIP 主要内容：`cover.mp3`（有入口音频时）、`1/<code>.mp3` 内容�
 进入一比一实现前仍需验证：
 
 - 原生 OID 码点编码/素材、笔型号与真实打印兼容；600/1200 dpi 输出的物理尺寸。
-- `.nexusbookpkg` 主进程二进制加解密与目录布局；本报告只恢复前端 manifest/IPC。
-- 详细 OCR 原生引擎/模型与布局输出格式、单音频词时间 JSON 完整 schema、line→OCR map 完整实样。
+- `.nexusbookpkg` 内部加解密、压缩/成员布局与往返兼容；前端manifest/IPC及原版单样本JSON外层已取得。
+- 详细OCR原生引擎/模型与布局输出格式、跨模型词时间JSON schema；本轮已有单个Tiny项目的words与line→OCR结构实样，未覆盖成功精确行句匹配及其他模型。
 - 校对后重对齐是否同步原始 OCR、旧 region/sentence 索引如何迁移；静态分支显示读取来源有差异。
 - 手工区域完整形状字段、多文件音频绑定的全部保存路径、部分导入失败后的恢复行为。
 - 服务端真实响应、错误码、收费/配额、云 ASR 与授权接口；本文没有调用验证。
-- 物理项目根目录、打包后 ZIP 确切文件名与内部路径，以主进程可见证据或非收费实样核验。
+- 点读ZIP确切成员文件名与内部路径待实际输出；项目根目录规则及本机实例路径已确认。
 
 复查方式：使用 Python `s=Path(...).read_text(encoding="utf-8")`，再 `s[offset:offset+N]`；不要用字节 seek 直接套本文坐标。检索锚点包含 `function dse`、`async function u3`、`async function nSe`、`function t0e`、`book-ocr-reviewed.json`、`book-custom-codes.json`、`function hg`、`exportBookOidBundle`、`version:"1.0-book"`、`ft.books.add`。

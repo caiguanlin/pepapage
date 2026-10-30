@@ -1,0 +1,146 @@
+{
+  "version": 1,
+  "target": "D:/systemSoft/PepaPage/resources/app.asar",
+  "records": [
+    {
+      "id": "source-selection",
+      "evidenceType": "shell-static-source-observation",
+      "file": "dist-electron/electron/main.js",
+      "sha256": "00072624097fef25e6b4d9ead3056c651fa0f798a67acb65edcbf616e339db7d",
+      "unicodeCharacterOffset": 41428,
+      "line": 1014,
+      "anchor": "ipcMain.handle('select-book-source'",
+      "snippet": "ipcMain.handle('select-book-source', async () => {\n    if (!mainWindow)\n        return null;\n    const result = await dialog.showOpenDialog(mainWindow, {\n        properties: ['openFile', 'multiSelections'],\n        title: '选择绘本文件（PDF / 图片）',\n        filters: [\n            { name: 'Book Files', extensions: ['pdf', ...BOOK_IMAGE_EXTS.map((e) => e.slice(1))] },\n            { name: 'PDF Documents', extensions: ['pdf'] },\n            { name: 'Images', extensions: BOOK_IMAGE_EXTS.map((e) => e.slice(1)) },\n        ],\n    });\n    if (result.canceled || result.filePaths.length === 0)\n        return null;\n    const filePaths = result.filePaths;\n    const exts = filePaths.map((p) => path.extname(p).toLowerCase());\n    const bookCount = exts.filter((e) => e === '.pdf').length;\n    // 图片多选：按文件名自然序（page2 < page10）返回，交由渲染进程合成 PDF\n    if (bookCount === 0) {\n        if (!exts.every((e) => BOOK_IMAGE_EXTS.includes(e))) {\n            return { error: `仅支持 PDF / 图片（${BOOK_IMAGE_EXTS.join(' ')}）` };\n        }\n        const sorted = [...filePaths].sort((a, b) => path.basename(a).localeCompare(path.basename(b), undefined, { numeric: true, sensitivity: 'base' }));\n        try {\n            const images = sorted.map((p) => ({ name: path.basename(p), buffer: fs.readFileSync(p) }));\n            // 所在文件夹名常是更合适的默认项目标题（如 .../培生根茎英语-4/page-01.jpg）\n            const dirPath = path.dirname(sorted[0]);\n            const dirName = path.basename(dirPath);\n            return {\n                source: {\n                    name: `${images.length} 张图片`,\n                    images,\n                    dirName: dirName && dirName !== path.sep ? dirName : undefined,\n                },\n            };\n        }\n        catch (e) {\n            console.error('[select-book-source] read images error:', e);\n            return { error: '读取图片失败，请重试' };\n        }\n    }\n    if (filePaths.length > 1 || bookCount > 1) {\n        return { error: 'PDF 请一次选择一个（图片才可多选，且不要与 PDF 混选）' };\n    }\n    const sourcePath = filePaths[0];\n    const dir = path.dirname(sourcePath);\n    const baseName = path.basename(sourcePath, path.extname(sourcePath));\n    const audioExts = ['.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg', '.wma'];\n    let audio;\n    try {\n        const entries = fs.readdirSync(dir);\n        const lowerBase = baseName.toLowerCase();\n        for (const entry of entries) {\n            const ext = path.extname(entry).toLowerCase();\n            if (!audioExts.includes(ext))\n                continue;\n            const entryBase = path.basename(entry, ext).toLowerCase();\n            if (entryBase === lowerBase) {\n                audio = { name: entry, buffer: fs.readFileSync(path.join(dir, entry)) };\n                break;\n            }\n        }\n    }\n    catch (e) {\n        console.error('[select-book-source] scan audio error:', e);\n    }\n    try {\n        const sourceBuffer = fs.readFileSync(sourcePath);\n        return { source: { name: path.basename(sourcePath), buffer: sourceBuffer }, audio };\n    }\n    catch (e) {\n        console.error('[select-book-source] read source error:', e);\n        return { ",
+      "limitations": [
+        "Static packaged-source observation; does not establish execution.",
+        "Offsets count Unicode code points, zero based; lines are one based."
+      ]
+    },
+    {
+      "id": "data-root",
+      "evidenceType": "shell-static-source-observation",
+      "file": "dist-electron/electron/main.js",
+      "sha256": "00072624097fef25e6b4d9ead3056c651fa0f798a67acb65edcbf616e339db7d",
+      "unicodeCharacterOffset": 5859,
+      "line": 143,
+      "anchor": "const portableMode = isPortableMode();",
+      "snippet": "const portableMode = isPortableMode();\nif (portableMode || installDirWritable) {\n    if (process.platform === 'win32' && app.isPackaged && !portableMode) {\n        // Stable data dir on the same drive as the install (D:\\PepaPage-data).\n        const stableDataDir = path.join(path.parse(exeDir).root, 'PepaPage-data');\n        if (fs.existsSync(stableDataDir)) {\n            app.setPath('userData', stableDataDir);\n        }\n        else {\n            app.setPath('userData', path.join(exeDir, 'user-data'));\n        }\n    }\n    else {\n        app.setPath('userData', path.join(exeDir, 'user-data'));\n    }\n}\n// Ensure userData directories exist\nconst userDataPath = app.getPath('userData');\nconst modelsPath = path.join(userDataPath, 'whisper-models');\nconst projectFilesPath = path.join(userDataPath, 'project-files');\nconst settingsPath = path.join(userDataPath, 'settings.json');\n// ── Data migration from legacy locations ──\n// Bring over EVERYTHING the user had before — media files, models, settings,\n// logs AND the Chromium profile (IndexedDB project metadata lives in\n// `Local Storage`, localStorage in `Local Storage/leveldb`, etc.) — so history\n// is kept. Sources ch",
+      "limitations": [
+        "Static packaged-source observation; does not establish execution.",
+        "Offsets count Unicode code points, zero based; lines are one based."
+      ]
+    },
+    {
+      "id": "project-files-helper",
+      "evidenceType": "shell-static-source-observation",
+      "file": "dist-electron/electron/lib/projectFiles.js",
+      "sha256": "394189b205c3d1be9124cc5649bcad2651ca314e3ad21fd67435e11df4e0dfef",
+      "unicodeCharacterOffset": 57,
+      "line": 3,
+      "anchor": "export function projectFilesPath()",
+      "snippet": "export function projectFilesPath() {\n    return path.join(app.getPath('userData'), 'project-files');\n}\nexport function getProjectFilePath(projectId, fileName) {\n    return path.join(projectFilesPath(), projectId, fileName);\n}\n",
+      "limitations": [
+        "Static packaged-source observation; does not establish execution.",
+        "Offsets count Unicode code points, zero based; lines are one based."
+      ]
+    },
+    {
+      "id": "courseware-main",
+      "evidenceType": "shell-static-source-observation",
+      "file": "dist-electron/electron/main.js",
+      "sha256": "00072624097fef25e6b4d9ead3056c651fa0f798a67acb65edcbf616e339db7d",
+      "unicodeCharacterOffset": 112855,
+      "line": 2731,
+      "anchor": "ipcMain.handle('export-book-courseware'",
+      "snippet": "ipcMain.handle('export-book-courseware', async (event, args) => {\n    const mod = await loadSecuredModule('bookCourseware');\n    const result = await mod.exportBookCoursewareInMain(args, mainWindow, (progress) => {\n        event.sender.send('book-courseware:export-progress', progress);\n    });\n    return result;\n});\nipcMain.handle('preview-book-courseware', async (event, args) => {\n    const mod = await loadSecuredModule('bookCourseware');\n    const result = await mod.previewBookCoursewareInMain(args, mainWindow, (progress) => {\n        event.sender.send('book-courseware:import-progress', progress);\n    });\n    return result;\n});\nipcMain.handle('decrypt-book-courseware', async (event, args) => {\n    const mod = await loadSecuredModule('bookCourseware');\n    const result = await mod.decryptBookCoursewareInMain(args, mainWindow, (progress) => {\n        event.sender.send('book-courseware:import-progress', progress);\n    });\n    return result;\n});\nipcMain.handle('cleanup-book-courseware-temp', async (_event, args) => {\n    const mod = await loadSecuredModule('bookCourseware');\n    mod.cleanupBookCoursewareTemp(args);\n    return { success: true };\n});\n// 把解压出的 projects/<projectId>/ 整目录复制到 project-files/<destProjectId>/\nipcMain.handle('copy-book-courseware-project', async (_event, args) => {\n    const mod = await loadSecuredModule('bookCourseware');\n    return mod.importBookCoursewareProjectFiles(args);\n});\n// ─── Protected package export (renderer-offloaded to avoid OOM) ──────────────\nipcMain.handle('export-protected-package', async (event, args) => {\n    const { exportProtecte",
+      "limitations": [
+        "Static packaged-source observation; does not establish execution.",
+        "Offsets count Unicode code points, zero based; lines are one based."
+      ]
+    },
+    {
+      "id": "courseware-preload",
+      "evidenceType": "shell-static-source-observation",
+      "file": "dist-electron/electron/preload.js",
+      "sha256": "8b2d7ac23aca3e2d4a4bd8ef482e80ef93a9060d3929eef5d9037b18b4eaa1d9",
+      "unicodeCharacterOffset": 4535,
+      "line": 64,
+      "anchor": "exportBookCourseware:",
+      "snippet": "exportBookCourseware: (args) => ipcRenderer.invoke('export-book-courseware', args),\n    onBookCoursewareExportProgress: (callback) => {\n        const handler = (_event, progress) => callback(progress);\n        ipcRenderer.on('book-courseware:export-progress', handler);\n        return () => ipcRenderer.removeListener('book-courseware:export-progress', handler);\n    },\n    previewBookCourseware: (args) => ipcRenderer.invoke('preview-book-courseware', args),\n    decryptBookCourseware: (args) => ipcRenderer.invoke('decrypt-book-courseware', args),\n    copyBookCoursewareProject: (args) => ipcRenderer.invoke('copy-book-courseware-project', args),\n    cleanupBookCoursewareTemp: (args) => ipcRenderer.invoke('cleanup-book-courseware-temp', args),\n    onBookCoursewareImportProgress: (callback) => {\n        const handler = (_event, progress) => callback(progress);\n        ipcRenderer.on('book-courseware:import-progress', handler);\n        return () => ipcRenderer.removeListener('book-courseware:import-progress', handler);\n    },\n    // Batch lab PDF export: pick a folder once, then write files silently\n    selectExportFolder: () => ipcRenderer.invoke('select-export-folder'),\n    writePdfFile: (args) => ipcRenderer.invoke('write-pdf-file', ar",
+      "limitations": [
+        "Static packaged-source observation; does not establish execution.",
+        "Offsets count Unicode code points, zero based; lines are one based."
+      ]
+    },
+    {
+      "id": "manual-page-preparation",
+      "evidenceType": "shell-static-source-observation",
+      "file": "dist/assets/index-CpWPkl9w.js",
+      "sha256": "370edc610902cfe5203a8068b105e98d190408c92282578a4d88273e68aa1c66",
+      "unicodeCharacterOffset": 1447408,
+      "line": 175,
+      "anchor": "async function Jwe(",
+      "snippet": "async function Jwe(n){var l;if(((l=n.processingSteps[0])==null?void 0:l.status)===\"completed\")return;await _a(n.id,0,{status:\"processing\",progress:0});const e=window.electronAPI;if(!e)throw new Error(\"文件存储不可用\");const t=await e.readProjectFile(n.id,n.sourceFileName);if(!t)throw new Error(`源文件不存在: ${n.sourceFileName}`);const r=use(t.data,\"application/pdf\"),{pages:s,coverBlob:i}=await Ome(r,(c,d)=>{_a(n.id,0,{status:\"processing\",progress:Math.round(c/Math.max(d,1)*100)})});if(s.length===0)throw new Error(\"未能读取 PDF 页面，请检查文件\");const o={version:1,sourceType:n.sourceType,pageCount:s.length,sentenceCount:0,pages:s.map((c,d)=>({index:d+1,width:c.width,height:c.height,sentenceStart:0,sentenceCount:0})),sentences:[],blocks:[]};if(await Qm(n.id,IS,JSON.stringify(o)),i)try{const c=await i.arrayBuffer();await e.saveProjectFile(n.id,J5,c)}catch(c){console.warn(\"[useBookProjectPoller] 封面保存失败:\",c)}await cl(n.id,{pageCount:s.length,sentenceCount:0}),await _a(n.id,0,{status:\"completed\",progress:100})}async function Qwe(n){const e=n.processingSteps[1],t=n.processingSteps[2];if((e==null?void 0:e.status)===\"completed\"&&(t==null?void 0:t.status)===\"completed\")return;const r=window.electronAPI;if(!r)throw new Error(\"文件存储不可用\");let s=null;try{s=(await cx()",
+      "limitations": [
+        "Static packaged-source observation; does not establish execution.",
+        "Offsets count Unicode code points, zero based; lines are one based."
+      ]
+    },
+    {
+      "id": "reader-mapping-input",
+      "evidenceType": "shell-static-source-observation",
+      "file": "dist/assets/index-CpWPkl9w.js",
+      "sha256": "370edc610902cfe5203a8068b105e98d190408c92282578a4d88273e68aa1c66",
+      "unicodeCharacterOffset": 1463742,
+      "line": 175,
+      "anchor": "function hSe(",
+      "snippet": "function hSe(n,e,t){const r=(t==null?void 0:t.entries)??[],s=[];if((n.audioMode??\"single\")===\"tts\"){const l=[...r].sort((c,d)=>(c.sentenceIndex??Number.MAX_SAFE_INTEGER)-(d.sentenceIndex??Number.MAX_SAFE_INTEGER));for(const c of l){const d=c.sentenceIndex!=null?e.sentences[c.sentenceIndex]:void 0;d&&s.push({fileName:c.fileName,text:d.text,pageIndex:(c.pageIndex??d.pageIndex)-1})}return s}const i=new Map((n.audioFiles??[]).map((l,c)=>[l.fileName,c])),o=[...r].sort((l,c)=>(i.get(l.fileName)??Number.MAX_SAFE_INTEGER)-(i.get(c.fileName)??Number.MAX_SAFE_INTEGER));for(const l of o){if(l.pageIndex==null)continue;const c=l.pageIndex-1,d=l.sentenceIndex!=null?e.sentences[l.sentenceIndex]:void 0;s.push({fileName:l.fileName,text:(d==null?void 0:d.text)??mse(e,e.pages[c])??l.originalName,pageIndex:c})}return s}async function h3(n){var w,y;const e=typeof window<\"u\"?window.electronAPI:void 0;if(!e)throw new Error(\"Electron API not available\");const t=async S=>{try{const k=await e.readProjectFile(n.id,S);return!k||!k.data?null:JSON.parse(new TextDe",
+      "limitations": [
+        "Static packaged-source observation; does not establish execution.",
+        "Offsets count Unicode code points, zero based; lines are one based."
+      ]
+    },
+    {
+      "id": "reader-entry",
+      "evidenceType": "shell-static-source-observation",
+      "file": "dist/assets/index-CpWPkl9w.js",
+      "sha256": "370edc610902cfe5203a8068b105e98d190408c92282578a4d88273e68aa1c66",
+      "unicodeCharacterOffset": 1464553,
+      "line": 175,
+      "anchor": "async function h3(",
+      "snippet": "async function h3(n){var w,y;const e=typeof window<\"u\"?window.electronAPI:void 0;if(!e)throw new Error(\"Electron API not available\");const t=async S=>{try{const k=await e.readProjectFile(n.id,S);return!k||!k.data?null:JSON.parse(new TextDecoder().decode(k.data))}catch{return null}},r=n.audioMode??\"single\",[s,i,o,l,c]=await Promise.all([fM(n.id),t(xf),t(aN),t(Z1),t($y)]);if(!s)throw new Error(\"绘本的识别数据缺失，无法打开阅读器\");const d=s.pages.map(S=>mse(s,S));let u=[],h={},f=ka(n.id,n.audioFileName);if(r===\"single\"){const S=new Map(((i==null?void 0:i.alignments)??[]).map(A=>[A.sentenceIndex,A])),k=new Map(((l==null?void 0:l.entries)??[]).map(A=>[A.lineIndex,A.sentenceIndex])),j=(l==null?void 0:l.lineCount)??(o==null?void 0:o.lineCount)??0,E=[];if(j>0)for(let A=0;A<j;A++){const C=k.get(A)??-1;if(C<0)continue;const M=S.get(C);!M||M.start<0||E.push({lineIndex:A,start:M.start,end:M.end,text:((w=s.sentences[C])==null?void 0:w.text)??\"\",sentenceIndex:C})}else if(i)for(const A of i.alignments)A.start<0||E.push({lineIndex:A.sentenceIndex,start:A.start,end:A.end,text:((y=s.sentences[A.sentenceIndex])==null?void 0:y.text)??\"\",sentenceIndex:A.sentenceIndex});if(E.sort((A,C)=>A.start-C.start||A.lineIndex-C.lineIndex),u=E.map((A,C)=>{var L;const M=S.get(A.sentenceIndex),O=s.sentences[A.sentenceIndex];return{id:crypto.randomUUID(),projectId:n.id,userId:n.userId,startTime:A.start,endTime:A.end,text:A.text,lineIndex:C,wordTimestamps:((L=M==null?void 0:M.words)==null?void 0:L.map((B,I)=>{var W,D;return{text:((D=(W=O==null?void 0:O.words)==null?void 0:W[I])==null?void 0:D.text)??\"\",start:B.start,end:B.end}}))??null}}),o)for(let A=0;A<E.length;A++){const C=o.mappings[E[A].lineIndex];C!==void 0&&(h[A]=C)}Object.keys(h).length===0&&u.length>0&&(h=xne(u,d))}else{const S=hSe(n,s,c);if(S.length===0)throw new Error(r===\"tts\"?\"没有可用的配音音频，请先完成配音\":\"多音频未经过模型处理，无法使用阅读器\");const k=S.map(C=>C.fileName).join(\"|\");let j=null;const E=await t(_q);if(E&&E.signature===k&&E.durations.length===S.length)j=E.durations;else{j=await uSe(n.id,S);const C=new TextEncoder().encode(JSON.stringify({signature:k,durations:j}));await e.saveProjectFile(n.id,_q,C.buffer.slice(C.byteOffset,C.byteOffset+C.byteLength)).catch(()=>{})}let A=0;u=S.map((C,M)=>{const O=A;return A+=j[M],{id:crypto.randomUUID(),projectId:n.id,userId:n.userId,startTime:O,endTime:A,text:C.text,lineIndex:M,wordTimestamps:null}}),S.forEach((C,M)=>{C.pageIndex>=0&&(h[M]=C.pageIndex)}),f=ka(n.id,pse)}await ft.transaction(\"rw\",ft.lrcLines,async()=>{await ft.lrcLines.where({projectId:n.id,userId:n.userId}).delete(),u.length>0&&await ft.lrcLines.bulkAdd(u)});const p=await ft.projects.get(n.id),x=await e.projectFileExists(n.id,J5).catch(()=>!1),b={...p,id:n.id,title:n.title,folderId:(p==null?void 0:p.folderId)??null,pdfUrl:ka(n.id,n.sourceFileName),audioUrl:f,lrcUrl:\"\",coverUrl:x?ka(n.id,J5):void 0,pageCount:n.pageCount??d.length,lineCount:u.length,metadata:{...(p==null?void 0:p.metadata)??{pagesText:[],mappings:{}},pagesText:d,mappings:h},userId:n.userId,processingStatus:\"completed\",sourceType:\"pdf_audio\",bookShadow:!0,createdAt:(p==null?void 0:p.createdAt)??n.createdAt,updatedAt:Date.now()};await ft.projects.put(b)}async function bF(n){const[e,t]=await Promise.all([ft.projects.where(\"userId\").equals(n).toArray(),ft.bookProjects.where(\"userId\").equals(n).primaryKeys()]),r=new Set(t);return e.filter(s=>!s.bookShadow&&!r.has(s.id))}const Po=160,fSe=1e4,pSe=1/12,Y2=24,gA=14;let gse=null;function Mq(n,e,t){return new Promise(r=>{const s=()=>{clearTimeout(i),n.removeEventListener(e,o),n.removeEventListener(\"error\",o),r()},i=setTimeout(s,t),o=()=>s();n.addEventListener(e,o,{once:!0}),n.addEventListener(\"error\",o,{once:!0})})}function mSe(n,e,t){const r=new Uint8Array(e*t);for(let s=0,i=0;s<n.length;s+=4,i++)r[i]=(n[s]*299+n[s+1]*587+n[s+2]*114)/1e3;return r}function yF(n,e,t){const r=new Uint8Array(n.length);for(let s=0;s<t;s++)for(let i=0;i<e;i++){const o=s*e+i;n[o]&&(r[o]=1,i>0&&(r[o-1]=1),i<e-1&&(r[o+1]=1),s>0&&(r[o-e]=1),s<t-1&&(r[o+e",
+      "limitations": [
+        "Static packaged-source observation; does not establish execution.",
+        "Offsets count Unicode code points, zero based; lines are one based."
+      ]
+    },
+    {
+      "id": "courseware-frontend",
+      "evidenceType": "shell-static-source-observation",
+      "file": "dist/assets/index-CpWPkl9w.js",
+      "sha256": "370edc610902cfe5203a8068b105e98d190408c92282578a4d88273e68aa1c66",
+      "unicodeCharacterOffset": 3887781,
+      "line": 3323,
+      "anchor": "async function uHe(",
+      "snippet": "async function uHe(n){const{selectedIds:e,bookFolders:t,bookProjects:r,onProgress:s}=n,i=window.electronAPI;if(!(i!=null&&i.exportBookCourseware))throw new Error(\"当前环境不支持课件导出（请在桌面端使用）\");const o=r.filter(h=>h.status===\"completed\"),l=Rz(e,t,o);if(l.size===0)throw new Error(\"选中项里没有「制作完成」的绘本项目，无法导出课件\");const c=[];for(const h of o)l.has(h.id)&&c.push({id:h.id,data:{...h,userId:\"\"},auxCode:cHe(h.id)});const d={version:\"1.0-book\",timestamp:new Date().toISOString(),folders:t.filter(h=>e.has(h.id)),projects:c};let u;s&&i.onBookCoursewareExportProgress&&(u=i.onBookCoursewareExportProgress(s));try{const h=await i.exportBookCourseware({manifest:d,filename:dHe(c.map(f=>f.data))});if(\"canceled\"in h)throw new Error(\"已取消导出\");if(!h.success)throw new Error((\"error\"in h?h.error:void 0)||\"导出失败\");return{path:h.path}}finally{u==null||u()}}async function hHe(n){const{currentUserId:e,currentFolderId:t,onProgress:r}=n,s=window.electronAPI;if(!(s!=null&&s.previewBookCourseware)||!(s!=null&&s.decryptBookCourseware)||!(s!=null&&s.copyBookCoursewareProject))throw new Error(\"当前环境不支持课件导入（请在桌面端使用）\");let i;r&&s.onBookCoursewareImportProgress&&(i=s.onBookCoursewareImportProgress(r));let o;try{const l=await s.previewBookCourseware({});if(\"canceled\"in l)throw new Error(\"已取消导入\");if(!l.success)throw new Error((\"error\"in l?l.error:void 0)||\"读取课件包失败\");o=l.tempDir;const c=await s.decryptBookCourseware({tempDir:o});if(!c.success)throw new Error((\"error\"in c?c.error:void 0)||\"解密课件包失败\");const{manifest:d,extractPath:u}=c;if(d.version!==\"1.0-book\")throw new Error(\"不是绘本课件包（或版本不兼容）\");const h=new Map;for(const p of d.folders??[]){const x=await ft.bookFolders.get(p.id);if(x){h.set(p.id,x.id);continue}const b={...p,userId:e,parentId:p.parentId&&(d.folders??[]).some(w=>w.id===p.parentId)?p.parentId:t};await ft.bookFolders.put(b),h.set(p.id,b.id)}let f=0;for(const p of d.projects??[]){const x={...p.data};x.userId=e,x.folderId=x.folderId&&h.has(x.folderId)?h.get(x.folderId):t;const y=(await ft.bookProjects.get(x.id)?crypto.randomUUID():null)||x.id,S=await s.copyBookCoursewareProject({tempDir:u,projectId:p.id,destProjectId:y});if(!S.success){const k=\"error\"in S?S.error:\"未知错误\";throw console.error(\"[bookCourseware] 复制项目文件失败:\",k),new Error(`复制项目「${x.title}」的文件失败：${k}`)}if(x.id=y,x.status=\"completed\",x.processingError=void 0,x.currentStepIndex=x.processingSteps.length,x.processingSteps=x.processingSteps.map(k=>({...k,status:\"completed\"})),x.updatedAt=Date.now(),await ft.bookProjects.put(x),p.auxCode)try{localStorage.setItem(`${Uce}${y}`,JSON.stringify(p.auxCode))}catch{}f++}return{importedCount:f}}finally{i==null||i(),o&&await s.cleanupBookCoursewareTemp({tempDir:o})}}const fHe={card:\"bg-white\",iconBg:\"bg-[#262320] group-hover:bg-[#2f2b26]\",iconText:\"text-[#f3efe7]\",ring:\"hover:border-[#3a352f]/60\",label:\"bg-slate-100 text-slate-500\"},dD=[\"水彩手绘\",\"卡通萌趣\",\"国风水墨\",\"3D 立体\",\"剪纸拼贴\",\"其他\"];function pHe(n){var t;if(n===jo)return\"云端\";const e=n.replace(/^ggml-/,\"\");return((t=dx.find(r=>r.name===e))==null?void 0:t.label)||e}const mHe={draft:\"草稿\",illustrating:\"绘制中\",co",
+      "limitations": [
+        "Static packaged-source observation; does not establish execution.",
+        "Offsets count Unicode code points, zero based; lines are one based."
+      ]
+    },
+    {
+      "id": "manual-binding-persistence",
+      "evidenceType": "shell-static-source-observation",
+      "file": "dist/assets/index-CpWPkl9w.js",
+      "sha256": "370edc610902cfe5203a8068b105e98d190408c92282578a4d88273e68aa1c66",
+      "unicodeCharacterOffset": 3817674,
+      "line": 3286,
+      "anchor": "const kn=v.useCallback(Ce=>",
+      "snippet": "const kn=v.useCallback(Ce=>{const ve=window.electronAPI;if(!ve)return;const be=new TextEncoder().encode(JSON.stringify({version:1,entries:Ce}));ve.saveProjectFile(n,iQ,be.buffer).catch(Qe=>console.error(\"[custom-audio] 写映射失败:\",Qe))},[n]),Mn=v.useCallback(async(Ce,ve)=>{const be=window.electronAPI;if(be){if(ve.size>rHe){Ot(`文件过大（${(ve.size/1024/1024).toFixed(1)}MB）：请上传小于 50MB 的音频`);return}Ot(null),wn(!0);try{const Qe=(ve.name.split(\".\").pop()??\"\").toLowerCase().replace(/[^a-z0-9]/g,\"\")||\"mp3\",Tt=`custom-audio-${Ce.replace(/[^a-zA-Z0-9_-]/g,\"_\")}-${Date.now().toString(36)}.${Qe}`;await be.saveProjectFile(n,Tt,await ve.arrayBuffer());const un=Sn.current[Ce];un&&un.fileName.startsWith(\"custom-audio-\")&&be.deleteProjectFile(n,un.fileName).catch(()=>{});const jn={...Sn.current,[Ce]:{fileName:Tt,originalName:ve.name,updatedAt:new Date().toISOString()}};zn(jn),Sn.current=jn,kn(jn)}catch(Qe){console.error(\"[custom-audio] 上传失败:\",Qe),Ot(Qe instanceof Error?Qe.message:\"语音保存失败\")}finally{wn(!1)}}},[",
+      "limitations": [
+        "Static packaged-source observation; does not establish execution.",
+        "Offsets count Unicode code points, zero based; lines are one based."
+      ]
+    }
+  ]
+}

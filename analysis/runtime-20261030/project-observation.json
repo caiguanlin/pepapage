@@ -1,0 +1,158 @@
+{
+  "schema": "PepaPage-selected-project-observation/v1",
+  "observedDate": "2026-10-30",
+  "kind": "shell-read-only-files",
+  "alias": "PAGE1",
+  "files": [
+    {
+      "name": "audio.wav",
+      "bytes": 162344,
+      "sha256": "34ca0cc4c8c947b92f056b1f1c1463b860b650a365827e0f4af2316979b3a6d8"
+    },
+    {
+      "name": "book-alignment.json",
+      "bytes": 1809,
+      "sha256": "6637b29880b1b30f2c90bcf0b3603312d3ca04e9d8ce3c18a49adfdefdbfd0e8",
+      "topLevelKeys": [
+        "version",
+        "sentenceCount",
+        "matchedCount",
+        "mode",
+        "alignments"
+      ],
+      "summary": {
+        "version": 1,
+        "sentenceCount": 26,
+        "matchedCount": 2,
+        "mode": "word",
+        "alignmentCount": 26
+      }
+    },
+    {
+      "name": "book-audio.mp3",
+      "bytes": 87692,
+      "sha256": "86df91ae0977bcdcd1c2a7ccc763585e43c20f11f678e44eabf9847ab95e7139"
+    },
+    {
+      "name": "book-cover.jpg",
+      "bytes": 155656,
+      "sha256": "5f68e59f28fafc4e5cfc3c50a6ae42b766e9a5d4dfac0190228e3f31312407bd"
+    },
+    {
+      "name": "book-line-ocr-mapping.json",
+      "bytes": 195,
+      "sha256": "694c20e3b6527ad12e113ad1e95c665fe113dfe283912c8255b658510c8311a4",
+      "topLevelKeys": [
+        "version",
+        "lineCount",
+        "sentenceCount",
+        "matchedCount",
+        "entries"
+      ],
+      "summary": {
+        "version": 1,
+        "lineCount": 2,
+        "sentenceCount": 26,
+        "matchedCount": 0,
+        "entries": [
+          {
+            "lineIndex": 0,
+            "sentenceIndex": -1,
+            "pageIndex": -1,
+            "score": 0
+          },
+          {
+            "lineIndex": 1,
+            "sentenceIndex": -1,
+            "pageIndex": -1,
+            "score": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "book-ocr.json",
+      "bytes": 21691,
+      "sha256": "be0c588eab885d56f0faaa2da61b32ecf1889892a4dc0d93178be5331bf8215c",
+      "topLevelKeys": [
+        "version",
+        "sourceType",
+        "pageCount",
+        "sentenceCount",
+        "pages",
+        "sentences",
+        "blocks"
+      ],
+      "summary": {
+        "version": 1,
+        "pageCount": 13,
+        "sentenceCount": 26,
+        "pages": 13,
+        "sentences": 26,
+        "blocks": 39,
+        "firstPage": {
+          "index": 1,
+          "width": 1087,
+          "height": 1673,
+          "sentenceStart": 0,
+          "sentenceCount": 3
+        }
+      }
+    },
+    {
+      "name": "book-page-mapping.json",
+      "bytes": 88,
+      "sha256": "df5248e3f9357aea0acd22df9510988296c7909cbdd2486c4d37b15dfb8c7202",
+      "topLevelKeys": [
+        "version",
+        "lineCount",
+        "pageCount",
+        "mappings",
+        "tailRefinedCount"
+      ],
+      "summary": {
+        "version": 1,
+        "lineCount": 2,
+        "pageCount": 13,
+        "mappings": {
+          "0": 0,
+          "1": 0
+        },
+        "tailRefinedCount": 0
+      }
+    },
+    {
+      "name": "book.pdf",
+      "bytes": 1241385,
+      "sha256": "ada42e307969b61ba23af695c06561fad75a70ef0265dad1778756a1ec86320c"
+    },
+    {
+      "name": "subtitles.lrc",
+      "bytes": 112,
+      "sha256": "432510bd69736c57b2c0e8657177afb5c7795436db777b5339b6b320f90feea2",
+      "summary": {
+        "detectedContentFormat": "SRT",
+        "cueCount": 2,
+        "note": "The file is named subtitles.lrc, but contains numbered SRT cues with comma millisecond timestamps and --> ranges."
+      }
+    },
+    {
+      "name": "word-timestamps.json",
+      "bytes": 663,
+      "sha256": "18038d649038f92cdd74e62e4e75fde00b21ad535dcb198477f08288bba7a30a",
+      "topLevelKeys": [
+        "version",
+        "words"
+      ],
+      "summary": {
+        "version": 1,
+        "wordsType": "object",
+        "lineKeys": [
+          "0",
+          "1"
+        ],
+        "wordCount": 7
+      }
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "schema": "PepaPage-courseware-envelope-observation/v1",
+  "observedDate": "2026-10-30",
+  "origin": "Exported through the original Windows application UI; parsed with Node JSON.parse",
+  "artifact": {
+    "path": "analysis/runtime-20261030/PAGE1-observed.nexusbookpkg",
+    "bytes": 2234925,
+    "sha256": "6fec253daa213db2a912a40e801f475ccb725120a36b473522c0ad0326ade4df"
+  },
+  "outer": {
+    "version": 1,
+    "protection": {
+      "enabled": true,
+      "iv": {
+        "type": "string",
+        "length": 16
+      },
+      "encryptedData": {
+        "type": "string",
+        "length": 2234656
+      }
+    },
+    "metadata": {
+      "filename": "page1.nexusbookpkg",
+      "contentType": "application/octet-stream",
+      "fileHash": {
+        "type": "string",
+        "length": 44
+      },
+      "createdAt": "2026-10-30T13:11:10.173Z"
+    }
+  },
+  "limitations": [
+    "Only this sample outer JSON was parsed.",
+    "Inner payload, encryption and fileHash algorithms were not recovered.",
+    "No import or round-trip test was performed.",
+    "This courseware export is separate from the paid OID bundle."
+  ]
+}

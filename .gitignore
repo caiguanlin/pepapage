@@ -8,6 +8,11 @@ analysis/tools/
 analysis/rea-evidence.json
 analysis/asar-inventory.json
 
+# 本轮定向提取的第三方代码、完整 REA 大证据与原书课件，仅留本地
+analysis/runtime-20261030/static/
+analysis/runtime-20261030/rea/frontend-*.json
+analysis/runtime-20261030/*.nexusbookpkg
+
 # 测试素材（书页、音频）可能有版权，不入库
 素材/
 

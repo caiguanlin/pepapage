@@ -1,6 +1,7 @@
 package com.pepapage.auth;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.pepapage.auth.convert.UserConverter;
 import com.pepapage.auth.dto.AuthDtos.LoginRequest;
 import com.pepapage.auth.dto.AuthDtos.LoginResponse;
 import com.pepapage.auth.dto.AuthDtos.RegisterRequest;
@@ -21,6 +22,7 @@ public class AuthService {
 
     private final UserMapper userMapper;
     private final TokenService tokenService;
+    private final UserConverter userConverter;
     private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
 
     public LoginResponse register(RegisterRequest req) {
@@ -34,7 +36,7 @@ public class AuthService {
         } catch (DuplicateKeyException e) {
             throw new BizException(409, "该邮箱已注册");
         }
-        return new LoginResponse(tokenService.issue(user.getId()), toInfo(user));
+        return new LoginResponse(tokenService.issue(user.getId()), userConverter.toInfo(user));
     }
 
     public LoginResponse login(LoginRequest req) {
@@ -43,7 +45,7 @@ public class AuthService {
         if (user == null || !encoder.matches(req.password(), user.getPasswordHash())) {
             throw new BizException(401, "邮箱或密码错误");
         }
-        return new LoginResponse(tokenService.issue(user.getId()), toInfo(user));
+        return new LoginResponse(tokenService.issue(user.getId()), userConverter.toInfo(user));
     }
 
     public UserInfo me(Long userId) {
@@ -51,10 +53,6 @@ public class AuthService {
         if (user == null) {
             throw BizException.unauthorized();
         }
-        return toInfo(user);
-    }
-
-    private static UserInfo toInfo(User u) {
-        return new UserInfo(u.getId(), u.getEmail(), u.getNickname());
+        return userConverter.toInfo(user);
     }
 }

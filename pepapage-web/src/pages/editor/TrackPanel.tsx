@@ -114,6 +114,45 @@ function styleRegion(rg: Region, kind: 'cue' | 'range', excluded: boolean, title
   }, 30)
 }
 
+// 小图拖动平移主视口（插件自带的只有点击跳转）：按位移比例换算滚动量，按在哪都不跳；
+// 拖动过就吞掉松手时的 click，免得插件顺带把播放位置跳过去
+function enableMinimapPan(ws: WaveSurfer, mini: HTMLElement) {
+  mini.style.cursor = 'grab'
+  let drag: { x: number; scroll: number; moved: boolean } | null = null
+  const onMove = (e: PointerEvent) => {
+    if (!drag) return
+    const dx = e.clientX - drag.x
+    if (!drag.moved && Math.abs(dx) < 3) return
+    drag.moved = true
+    e.preventDefault()
+    ws.setScroll(drag.scroll + (dx / mini.clientWidth) * ws.getWrapper().clientWidth)
+  }
+  const onUp = () => {
+    document.removeEventListener('pointermove', onMove)
+    document.removeEventListener('pointerup', onUp)
+    mini.style.cursor = 'grab'
+    // click 在 pointerup 之后派发，下一轮再清
+    setTimeout(() => (drag = null))
+  }
+  const onDown = (e: PointerEvent) => {
+    if (e.button !== 0) return
+    drag = { x: e.clientX, scroll: ws.getScroll(), moved: false }
+    mini.style.cursor = 'grabbing'
+    document.addEventListener('pointermove', onMove)
+    document.addEventListener('pointerup', onUp)
+  }
+  const onClick = (e: MouseEvent) => {
+    if (drag?.moved) e.stopPropagation()
+  }
+  mini.addEventListener('pointerdown', onDown)
+  mini.addEventListener('click', onClick, true)
+  return () => {
+    onUp()
+    mini.removeEventListener('pointerdown', onDown)
+    mini.removeEventListener('click', onClick, true)
+  }
+}
+
 const fmtFull = (t: number) =>
   `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(Math.floor(t % 60)).padStart(2, '0')}.${String(Math.floor((t % 1) * 1000)).padStart(3, '0')}`
 const fmtHover = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}.${Math.floor((t % 1) * 10)}`
@@ -333,6 +372,17 @@ export default function TrackPanel(p: TrackPanelProps) {
       // 小图同样不按播放进度着色，只留光标与视口框
       MinimapPlugin.create({ height: 16, overlayColor: 'rgba(100,116,139,.25)', waveColor: '#cbd5e1', progressColor: '#cbd5e1', cursorColor: 'rgb(244,63,94)', cursorWidth: 1 }),
     )
+    // 小图容器在注册时同步插入主波形的 shadow DOM
+    const mini = root instanceof ShadowRoot ? root.querySelector<HTMLElement>('[part="minimap"]') : null
+    const offPan = mini ? enableMinimapPan(ws, mini) : () => {}
+    // 普通鼠标只有竖向滚轮：放大后在波形上滚动即横向平移（触控板横滑、Ctrl+滚轮照常）
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return
+      if (ws.getWrapper().clientWidth <= ws.getWidth()) return
+      e.preventDefault()
+      ws.setScroll(ws.getScroll() + (e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY))
+    }
+    box.addEventListener('wheel', onWheel, { passive: false })
     ws.once('ready', () => setReady(true))
     ws.on('timeupdate', (t) => setTime(t))
     // 点击波形（拖拽后的点击已被插件吞掉）：seek 并从该点播放
@@ -360,6 +410,8 @@ export default function TrackPanel(p: TrackPanelProps) {
       if (rg.id.startsWith('cue:')) latest.current.pickCue?.(rg.id.slice(4))
     })
     return () => {
+      offPan()
+      box.removeEventListener('wheel', onWheel)
       ws.destroy()
       wsRef.current = null
       regionsRef.current = null
@@ -540,7 +592,7 @@ export default function TrackPanel(p: TrackPanelProps) {
             <div className="flex h-[141px] items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-xs text-slate-400">该区域还没有可用音频</div>
           )}
           <div className="text-[11px] text-slate-400">
-            点击波形播放；空白处拖动可框选区间，拖动/拉伸色块调整起止；上方滑杆缩放，下方小图可点击跳转。Ctrl+C / Ctrl+V 复制粘贴区间。
+            点击波形播放；空白处拖动可框选区间，拖动/拉伸色块调整起止；上方滑杆缩放；放大后滚轮或拖动下方小图平移，点击小图跳转。Ctrl+C / Ctrl+V 复制粘贴区间。
             {p.customAudioName && (
               <span className="ml-2 text-indigo-600">
                 自定义音源：{p.customAudioName}

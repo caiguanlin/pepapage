@@ -11,7 +11,7 @@
 1. 初始化数据库：在 MySQL 中执行 `pepapage-server/sql/schema.sql`。
 2. 复制 `pepapage-server/src/main/resources/application-local.yml.example` 为 `application-local.yml`，填 MySQL 密码、Redis 密码、OSS 配置。
 3. 启动后端：`cd pepapage-server` 后执行 `mvn spring-boot:run`。
-4. 启动前端：`cd pepapage-web` 后执行 `npm run dev`，访问 http://localhost:5173 。
+4. 启动前端：`cd pepapage-web` 后执行 `npm run dev`，访问 http://localhost:5173 。本地测试账号：邮箱 `admin@qq.com`，密码 `admin@qq.com`（仅开发环境）。
 5. 启动 worker：`cd pepapage-worker`，执行 `pip install -r requirements.txt`，复制 `.env.example` 为 `.env`，再执行 `python -m worker.main`。
 
 ## 阿里 OSS 设置

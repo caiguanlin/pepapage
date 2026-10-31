@@ -1,4 +1,4 @@
-// single 最右「识别文字」列（UI 规格 7.5，契约 docs/team-contract.md 5.6）：显示「音频」列当前查看音源的按词识别结果
+// single 右侧「识别文字」列，在 PDF 与「音频」列之间（UI 规格 7.5，契约 docs/team-contract.md 5.6）：显示「音频」列当前查看音源的按词识别结果
 // （原书音频用 /analysis 的 lines，清单音源用 <fileName>.asr.json；行结构为最小公共接口 RecognizedLine，AnalysisLine 兼容）。
 // 点词/拖词规则：未选框时点词只试听；选中框且查看的就是该框音源时，按词改区间（原书音源写 manualRanges，清单音源写 start/end），
 // 点区间外的词扩展首/末、点首/末词向内收缩；查看的不是该框音源时，点一个词/拖一串词 = 先把框改绑到查看的音源，再把区间设成这串词

@@ -1,7 +1,7 @@
 // 原书辅码编辑器 /picture-books/:id/editor（UI 规格第 7 节）。
 // 画布坐标统一为 OCR 渲染平面像素（scale=2），页码 1 起始。
-// single 模式右侧两列：「音频」（音频库，上传额外音源单独识别，契约 docs/team-contract.md 第 5 节）
-// 与「识别文字」（显示音频列当前查看音源的识别结果）；点词/拖词改区间或跨音源改绑，随「保存」写入。
+// single 模式右侧两列：「识别文字」（显示音频列当前查看音源的识别结果）
+// 与最右的「音频」（音频库，上传额外音源单独识别，契约 docs/team-contract.md 第 5 节）；点词/拖词改区间或跨音源改绑，随「保存」写入。
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { ArrowLeft, FileText, Loader2, Music, Save, Share2, X, ZoomIn, ZoomOut } from 'lucide-react'
@@ -1200,17 +1200,6 @@ export default function EditorPage() {
 
           {mode === 'single' && (
             <>
-              <AudioLibrary
-                items={audioItems}
-                viewing={viewingAudio}
-                canUse={!!sel}
-                busy={busy}
-                onView={setViewingAudio}
-                onUse={(it) => bindAudio(it.fileName, it.originalName ?? it.name)}
-                onUpload={uploadLibraryFiles}
-                onIdentify={identifyAudio}
-                onDelete={deleteLibItem}
-              />
               <RecognizedTextPanel
                 state={viewState}
                 audioUrl={viewUrl}
@@ -1225,6 +1214,17 @@ export default function EditorPage() {
                     : null
                 }
                 onRange={onViewRange}
+              />
+              <AudioLibrary
+                items={audioItems}
+                viewing={viewingAudio}
+                canUse={!!sel}
+                busy={busy}
+                onView={setViewingAudio}
+                onUse={(it) => bindAudio(it.fileName, it.originalName ?? it.name)}
+                onUpload={uploadLibraryFiles}
+                onIdentify={identifyAudio}
+                onDelete={deleteLibItem}
               />
             </>
           )}

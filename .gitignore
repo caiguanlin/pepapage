@@ -16,6 +16,9 @@ analysis/runtime-20261030/*.nexusbookpkg
 # 测试素材（书页、音频）可能有版权，不入库
 素材/
 
+# oil-ui skill 的过程工作区（候选稿、截图、素材缓存）
+.oil-ui/
+
 # IDE / 系统
 .vscode/
 .idea/

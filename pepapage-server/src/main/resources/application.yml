@@ -19,8 +19,8 @@ spring:
       database: 0
   servlet:
     multipart:
-      max-file-size: 500MB
-      max-request-size: 500MB
+      max-file-size: 50MB
+      max-request-size: 50MB
   jackson:
     default-property-inclusion: non_null
 
@@ -51,5 +51,5 @@ pepapage:
     access-key-secret: ${OSS_ACCESS_KEY_SECRET:}
     # 上传签名有效期（秒）、单文件上限（MB）、下载签名 URL 有效期（秒）
     upload-expire-seconds: 900
-    max-upload-mb: 1024
+    max-upload-mb: 50
     download-expire-seconds: 3600

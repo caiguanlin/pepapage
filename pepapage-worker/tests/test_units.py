@@ -77,6 +77,24 @@ def test_codes_dedup_and_limit():
         pass
 
 
+def test_custom_audio_crop_and_reuse():
+    aux = export.normalize_aux({"level": "sentence"})
+    book = _book(["One.", "Two.", "Three."])
+    al = {"alignments": [{"sentenceIndex": i, "start": i, "end": i + 1} for i in range(3)]}
+    custom = {"entries": {
+        "p1:s0": {"fileName": "custom-audio-a.mp3", "start": 1.0, "end": 2.5},
+        "p1:s1": {"fileName": "custom-audio-a.mp3", "start": 3.0, "end": 4.0},
+        "p1:s2": {"fileName": "custom-audio-a.mp3"},
+    }}
+    regions = export.plan_regions({"audioMode": "single"}, book, al, None, None, custom, aux)
+    assert regions[0]["audio"] == {"sourceFile": "custom-audio-a.mp3", "segments": [{"start": 1.0, "end": 2.5}]}
+    assert regions[2]["audio"]["segments"] == []  # 无裁剪整段播放
+    regions, codes = export.assign_codes(regions, aux)
+    assert len({r["code"] for r in regions}) == 3  # 同一文件的不同裁剪分到不同码
+    assert regions[0]["audioKey"] == "file:custom-audio-a.mp3@ranges:1.000-2.500"
+    assert regions[2]["audioKey"] == "file:custom-audio-a.mp3"
+
+
 def test_aux_defaults():
     aux = export.normalize_aux(None)
     assert aux["entryCode"] == 56001 and aux["contentStartCode"] == 25001 and aux["boxPadding"] == 12

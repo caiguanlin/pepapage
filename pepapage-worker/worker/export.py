@@ -107,7 +107,8 @@ def _ranges_key(segments: list[dict[str, float]]) -> str:
 
 def audio_key(audio: dict[str, Any], repeat: int = 1) -> str | None:
     if audio.get("sourceFile"):
-        key = f"file:{audio['sourceFile']}"
+        # 同一文件的不同裁剪是不同音频，须分到不同码值
+        key = f"file:{audio['sourceFile']}" + (f"@{_ranges_key(audio['segments'])}" if audio.get("segments") else "")
     elif audio.get("sourceFiles"):
         key = "files:" + ";".join(audio["sourceFiles"])
     elif audio.get("segments"):
@@ -122,6 +123,14 @@ def _clean_segments(segs: list[dict[str, float]]) -> list[dict[str, float]]:
            if s.get("start", -1) is not None and float(s.get("start", -1)) >= 0
            and float(s["end"]) - float(s["start"]) > MIN_SEGMENT]
     return sorted(out, key=lambda s: s["start"])
+
+
+def _custom_crop(entry: dict[str, Any]) -> list[dict[str, float]]:
+    """自定义音源的可选裁剪 start/end（秒，相对该文件）；缺省或无效时整段播放。"""
+    s, e = entry.get("start"), entry.get("end")
+    if not isinstance(s, (int, float)) or not isinstance(e, (int, float)):
+        return []
+    return _clean_segments([{"start": s, "end": e}])
 
 
 def _pad(box: dict[str, float], pad: float) -> dict[str, float]:
@@ -176,7 +185,7 @@ def plan_regions(project: dict[str, Any], ocr: dict[str, Any] | None, alignment:
             return
         box = overrides.get(key) or box
         if key in custom_entries and custom_entries[key].get("fileName"):
-            audio = {"sourceFile": custom_entries[key]["fileName"], "segments": []}
+            audio = {"sourceFile": custom_entries[key]["fileName"], "segments": _custom_crop(custom_entries[key])}
         elif key in manual:
             m = manual[key]
             audio = {"segments": _clean_segments([{"start": m.get("start", -1), "end": m.get("end", -1)}])}

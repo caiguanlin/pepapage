@@ -185,10 +185,10 @@ export default function SettingsPanel({ aux, audioMode, onChange, tool, onTool, 
         </Section>
 
         <Section id="code" title="常用设置" icon={<QrCode size={14} className="text-indigo-500" />} open={open} onOpen={setOpen}>
-          <Row label="入口码" help={`每本书一个，${aux.dotSize}x${aux.dotSize} 可用 56001–${entryMax}；点读笔点「点读入口」方块时播放本书名称音频`}>
+          <Row label="入口码">
             <NumField value={aux.entryCode} min={56001} max={entryMax} title="书籍入口编号" onCommit={(entryCode) => set({ entryCode })} />
           </Row>
-          <Row label="内容码" help={`可用范围 25001–${contentMax}（${aux.dpi}dpi 素材覆盖范围）；结束码按内容量自动推算`}>
+          <Row label="内容码">
             <NumField value={aux.contentStartCode} min={25001} max={contentMax} title="内容起始码" onCommit={(contentStartCode) => set({ contentStartCode })} />
           </Row>
           <Row label="辅码粒度">

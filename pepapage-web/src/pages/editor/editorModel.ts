@@ -238,6 +238,8 @@ export interface CodePlan {
   byBoxKey: Map<string, CodeRegion>
   /** level=page 时的整页区域，键为 1 起始页码 */
   pageRegions: Map<number, CodeRegion>
+  /** 没有可播音频、导出时会跳过的框键（整页区域只记 p<page>:page），仅供预览提示「无音频」 */
+  noAudioKeys: Set<string>
   /** 与导出相同的超限错误文案；为 null 表示全部分配成功 */
   error: string | null
 }
@@ -313,6 +315,7 @@ export function planCodes(audioMode: string, d: EditorData): CodePlan {
   const customEntries = d.customAudio.entries ?? {}
   const pad = Number(aux.boxPadding) || 0
   const regions: CodeRegion[] = []
+  const noAudio = new Set<string>()
 
   const add = (key: string, page: number, box: Box | null | undefined, audio: PlanAudio | null, members: string[], priority = 1, custom = false) => {
     if (excluded.has(key) || !box || !page) return false
@@ -322,7 +325,11 @@ export function planCodes(audioMode: string, d: EditorData): CodePlan {
       const m = manual[key]
       audio = { segments: cleanSegments([{ start: m.start ?? -1, end: m.end ?? -1 }]) }
     }
-    if (!audio || !(audio.sourceFile || audio.segments.length)) return false
+    if (!audio || !(audio.sourceFile || audio.segments.length)) {
+      // 仅供预览：整页区域只记页键，由页面角标统一提示，不在页内各句上重复标
+      for (const k of key.endsWith(':page') ? [key] : members) noAudio.add(k)
+      return false
+    }
     const rep = Math.max(1, Math.min(9, Math.trunc(Number(repeats[key] ?? 1) || 1)))
     regions.push({ boxKey: key, pageIndex: page, box: custom ? box : padBox(box, pad), audio, repeat: rep, priority, custom, memberKeys: members })
     return true
@@ -409,7 +416,7 @@ export function planCodes(audioMode: string, d: EditorData): CodePlan {
     for (const k of r.memberKeys) if (!byBoxKey.has(k)) byBoxKey.set(k, r)
     if (r.boxKey.endsWith(':page')) pageRegions.set(r.pageIndex, r)
   }
-  return { regions: assigned, byBoxKey, pageRegions, error }
+  return { regions: assigned, byBoxKey, pageRegions, noAudioKeys: noAudio, error }
 }
 
 export async function saveAll(id: string, d: EditorData, audioMode: string) {

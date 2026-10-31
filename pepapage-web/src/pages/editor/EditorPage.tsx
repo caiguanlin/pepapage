@@ -755,6 +755,11 @@ export default function EditorPage() {
                             整页 {pageRegion.code}
                           </div>
                         )}
+                        {showCodes && !pageRegion && plan?.noAudioKeys.has(`p${page}:page`) && (
+                          <div className="pointer-events-none absolute top-1 left-1 z-20 rounded bg-slate-400 px-1 text-[10px] leading-4 text-white">
+                            整页 无音频
+                          </div>
+                        )}
                         {showSticker && (
                           <EntrySticker
                             aux={data.aux}
@@ -783,6 +788,7 @@ export default function EditorPage() {
                             const region = ex ? undefined : plan?.byBoxKey.get(b.key)
                             const boxRegion = region && !region.boxKey.endsWith(':page') ? region : undefined
                             const code = showCodes ? boxRegion?.code : undefined
+                            const silent = showCodes && !ex && !region && !!plan?.noAudioKeys.has(b.key)
                             const color = ex
                               ? 'border-dashed border-slate-400 bg-slate-400/10'
                               : b.kind === 'custom'
@@ -802,9 +808,11 @@ export default function EditorPage() {
                                 className={`absolute border ${color} ${b.shape === 'ellipse' ? 'rounded-full' : 'rounded-sm'} ${active ? 'z-10 !border-rose-600 shadow-[0_0_0_1px_rgba(225,29,72,.6)]' : ''} ${dragOverKey === b.key ? 'ring-2 ring-indigo-400' : ''} cursor-move`}
                                 style={{ ...boxStyle(b.box, ratio), ...(data.aux.enabled && boxRegion ? dotPreviewBg(OCR_PX_PER_MM * ratio) : null) }}
                               >
-                                {(entry || data.alignment.repeatCounts?.[b.key] || data.customAudio.entries[b.key] || code != null) && (
-                                  <div className="pointer-events-none absolute -top-4 left-0 flex gap-0.5 text-[10px] leading-3 whitespace-nowrap">
+                                {(entry || data.alignment.repeatCounts?.[b.key] || data.customAudio.entries[b.key] || code != null || silent) && (
+                                  // z-20：框重叠时标签落在相邻框内，抬高层级避免被后绘制的框盖住
+                                  <div className="pointer-events-none absolute -top-4 left-0 z-20 flex gap-0.5 text-[10px] leading-3 whitespace-nowrap">
                                     {code != null && <span className="rounded bg-slate-800/85 px-1 text-white">{code}</span>}
+                                    {silent && <span className="rounded bg-slate-400 px-1 text-white" title="未对上音频，导出时不赋码">无音频</span>}
                                     {entry && <span className="rounded bg-amber-500 px-1 text-white">入口</span>}
                                     {data.alignment.repeatCounts?.[b.key] && <span className="rounded bg-slate-700 px-1 text-white">×{data.alignment.repeatCounts[b.key]}</span>}
                                     {data.customAudio.entries[b.key] && <span className="rounded bg-indigo-600 px-1 text-white">自定义音</span>}

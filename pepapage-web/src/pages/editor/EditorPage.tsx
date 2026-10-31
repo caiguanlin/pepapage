@@ -66,26 +66,37 @@ type Drag =
   | { kind: 'create'; page: number; ratio: number; x0: number; y0: number; x1: number; y1: number; rect: DOMRect }
   | { kind: 'move'; key: string; page: number; ratio: number; start: Box; cx: number; cy: number; moved: boolean }
   | { kind: 'resize'; handle: Handle; key: string; page: number; ratio: number; start: Box; cx: number; cy: number; moved: boolean }
+  | { kind: 'entry'; cx: number; cy: number; moved: boolean; start: { x: number; y: number }; frame: { w: number; h: number }; pageW: number; pageH: number }
 
-/** 入口贴纸预览：位置按 entryCorner 离纸边 8mm，外框约为点码尺寸 × 1.18；有 entryRect 时按归一化坐标。 */
-function EntrySticker({ aux, displayWidth, displayHeight }: { aux: AuxCodeSettings; displayWidth: number; displayHeight: number }) {
+/** 入口贴纸外框几何（预览与拖拽起点共用）：有 entryRect 时按归一化坐标，否则外框 = entrySizeMm × 1.18、按 entryCorner 离纸边 8mm。
+ *  rect 为外框归一化位置与尺寸（相对显示宽高），供拖拽起点与夹取使用。 */
+function entryStickerGeometry(aux: AuxCodeSettings, displayWidth: number, displayHeight: number) {
   const pxPerMm = displayWidth / paperWidthMm(aux) // 近似：按纸宽换算
   const outer = aux.entrySizeMm * 1.18 * pxPerMm
   const margin = 8 * pxPerMm
-  let w = outer
-  let h = outer
-  let left: number
-  let top: number
-  if (aux.entryRect) {
-    const r = aux.entryRect
-    if (r.w > 0) w = r.w * displayWidth
-    if (r.h > 0) h = r.h * displayHeight
-    left = r.x * displayWidth
-    top = r.y * displayHeight
-  } else {
-    left = aux.entryCorner === 'tl' || aux.entryCorner === 'bl' ? margin : displayWidth - margin - outer
-    top = aux.entryCorner === 'tl' || aux.entryCorner === 'tr' ? margin : displayHeight - margin - outer
-  }
+  const r = aux.entryRect
+  const w = r && r.w > 0 ? r.w * displayWidth : outer
+  const h = r && r.h > 0 ? r.h * displayHeight : outer
+  const left = r ? r.x * displayWidth : aux.entryCorner === 'tl' || aux.entryCorner === 'bl' ? margin : displayWidth - margin - outer
+  const top = r ? r.y * displayHeight : aux.entryCorner === 'tl' || aux.entryCorner === 'tr' ? margin : displayHeight - margin - outer
+  return { pxPerMm, left, top, w, h, rect: { x: r ? r.x : left / displayWidth, y: r ? r.y : top / displayHeight, w: w / displayWidth, h: h / displayHeight } }
+}
+
+/** 入口贴纸预览；select 工具下可拖动调整位置，绘制工具下保持不可命中以免挡住画框。 */
+function EntrySticker({
+  aux,
+  displayWidth,
+  displayHeight,
+  draggable,
+  onPointerDown,
+}: {
+  aux: AuxCodeSettings
+  displayWidth: number
+  displayHeight: number
+  draggable: boolean
+  onPointerDown: (e: React.PointerEvent) => void
+}) {
+  const { pxPerMm, left, top, w, h } = entryStickerGeometry(aux, displayWidth, displayHeight)
   const st = aux.entryStyle
   const frame =
     st === 'focus'
@@ -99,7 +110,12 @@ function EntrySticker({ aux, displayWidth, displayHeight }: { aux: AuxCodeSettin
             : ''
   const corner = 'absolute h-[18%] w-[18%] border-slate-700'
   return (
-    <div className={`pointer-events-none absolute z-20 ${frame}`} style={{ left, top, width: w, height: h }} title={`入口码 ${aux.entryCode}`}>
+    <div
+      onPointerDown={onPointerDown}
+      className={`absolute z-20 ${draggable ? 'cursor-move hover:ring-2 hover:ring-amber-400' : 'pointer-events-none'} ${frame}`}
+      style={{ left, top, width: w, height: h }}
+      title={`入口码 ${aux.entryCode} · 拖动调整位置`}
+    >
       <div className="absolute inset-[9%]" style={dotPreviewBg(pxPerMm)} />
       {st === 'focus' && (
         <>
@@ -318,11 +334,30 @@ export default function EditorPage() {
     setDrag(handle ? { kind: 'resize', handle, ...base } : { kind: 'move', ...base })
   }
 
+  /** 拖动入口贴纸：起点取贴纸当前实际位置的比例坐标（entryRect 为 null 时按角换算成比例）。 */
+  const onEntryDown = (aux: AuxCodeSettings, pageW: number, pageH: number) => (e: React.PointerEvent) => {
+    if (tool !== 'select' || e.button !== 0) return
+    e.stopPropagation()
+    const g = entryStickerGeometry(aux, pageW, pageH)
+    setDrag({ kind: 'entry', cx: e.clientX, cy: e.clientY, moved: false, start: { x: g.rect.x, y: g.rect.y }, frame: { w: g.rect.w, h: g.rect.h }, pageW, pageH })
+  }
+
   useEffect(() => {
     if (!drag) return
     const move = (e: PointerEvent) => {
       if (drag.kind === 'create') {
         setDrag({ ...drag, x1: (e.clientX - drag.rect.left) / drag.ratio, y1: (e.clientY - drag.rect.top) / drag.ratio })
+        return
+      }
+      if (drag.kind === 'entry') {
+        const dx = e.clientX - drag.cx
+        const dy = e.clientY - drag.cy
+        if (!drag.moved && Math.abs(dx) + Math.abs(dy) < 2) return
+        if (!drag.moved) setDrag({ ...drag, moved: true })
+        // 位移换算为归一化坐标并夹住，保证整个外框留在页内；只写 x/y，尺寸仍由 entrySizeMm 决定
+        const x = Math.min(1 - drag.frame.w, Math.max(0, drag.start.x + dx / drag.pageW))
+        const y = Math.min(1 - drag.frame.h, Math.max(0, drag.start.y + dy / drag.pageH))
+        update((d) => ({ ...d, aux: { ...d.aux, entryRect: { x, y, w: 0, h: 0 } } }))
         return
       }
       const dx = (e.clientX - drag.cx) / drag.ratio
@@ -720,7 +755,15 @@ export default function EditorPage() {
                             整页 {pageRegion.code}
                           </div>
                         )}
-                        {showSticker && <EntrySticker aux={data.aux} displayWidth={displayWidth} displayHeight={size.height * ratio} />}
+                        {showSticker && (
+                          <EntrySticker
+                            aux={data.aux}
+                            displayWidth={displayWidth}
+                            displayHeight={size.height * ratio}
+                            draggable={tool === 'select'}
+                            onPointerDown={onEntryDown(data.aux, displayWidth, size.height * ratio)}
+                          />
+                        )}
                         <div
                           className="absolute inset-0"
                           onDragOver={(e) => {

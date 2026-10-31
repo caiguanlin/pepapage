@@ -200,9 +200,16 @@ export function normalizeAuxCode(raw: unknown): AuxCodeSettings {
   const num = (v: unknown, def: number) => (Number.isFinite(Number(v)) ? Math.round(Number(v)) : def)
   const styleMap: Record<string, AuxCodeSettings['entryStyle']> = { classic: 'flag', rounded: 'ticket', accent: 'focus' }
   const rawStyle = typeof r.entryStyle === 'string' ? (styleMap[r.entryStyle] ?? r.entryStyle) : r.entryStyle
-  let entryRect = r.entryRect && typeof r.entryRect === 'object' ? r.entryRect : null
-  if (!entryRect && r.entryPos && typeof r.entryPos === 'object') {
-    entryRect = { x: clamp(Number(r.entryPos.x) || 0, 0, 1), y: clamp(Number(r.entryPos.y) || 0, 0, 1), w: 0, h: 0 }
+  // entryRect 规整为数值 {x,y,w,h}：x/y/w/h 夹到 [0,1]、非数值取 0；不是对象则为 null。
+  // 旧版 entryPos 只有位置，兼容转换为 w=h=0（尺寸仍由 entrySizeMm 决定）。
+  const num01 = (v: unknown) => clamp(Number(v) || 0, 0, 1)
+  let entryRect: AuxCodeSettings['entryRect'] = null
+  if (r.entryRect && typeof r.entryRect === 'object') {
+    const e = r.entryRect as Record<string, unknown>
+    entryRect = { x: num01(e.x), y: num01(e.y), w: num01(e.w), h: num01(e.h) }
+  } else if (r.entryPos && typeof r.entryPos === 'object') {
+    const p = r.entryPos as Record<string, unknown>
+    entryRect = { x: num01(p.x), y: num01(p.y), w: 0, h: 0 }
   }
   const paperMm = (r.customPaperMm ?? d.customPaperMm) as { w: number; h: number }
   return {

@@ -68,7 +68,8 @@ function NumField({ value, onCommit, min, max, title }: { value: number; onCommi
   )
 }
 
-function Seg<T extends string>({ value, options, onChange, cols }: { value: T; options: [T, string][]; onChange: (v: T) => void; cols?: number }) {
+/** value 为 null 时（如入口码已拖到自定义位置）各项都不高亮。 */
+function Seg<T extends string>({ value, options, onChange, cols }: { value: T | null; options: [T, string][]; onChange: (v: T) => void; cols?: number }) {
   return (
     <div
       className={`rounded-lg bg-[#efede8] p-0.5 ${cols ? 'grid gap-0.5' : 'flex'}`}
@@ -212,8 +213,8 @@ export default function SettingsPanel({ aux, audioMode, onChange, tool, onTool, 
           <Row label="放置页">
             <Seg value={aux.entryPlacement} onChange={(entryPlacement) => set({ entryPlacement })} options={[['first', '仅首页'], ['all', '每页都铺']]} />
           </Row>
-          <Row label="位置">
-            <Seg value={aux.entryCorner} onChange={(entryCorner) => set({ entryCorner, entryRect: null })} options={[['tl', '左上'], ['tr', '右上'], ['bl', '左下'], ['br', '右下']]} />
+          <Row label="位置" help={aux.entryRect ? '已拖动到自定义位置，点选任一角可复位' : undefined}>
+            <Seg value={aux.entryRect ? null : aux.entryCorner} onChange={(entryCorner) => set({ entryCorner, entryRect: null })} options={[['tl', '左上'], ['tr', '右上'], ['bl', '左下'], ['br', '右下']]} />
           </Row>
           <Row label="样式">
             <Seg

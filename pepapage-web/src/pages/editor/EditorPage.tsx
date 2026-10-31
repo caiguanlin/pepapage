@@ -282,25 +282,12 @@ export default function EditorPage() {
         const fileName = data?.customAudio.entries[b.key]?.fileName
         update((d) => removeKeyArtifacts({ ...d, customCodes: { regions: d.customCodes.regions.filter((r) => r.id !== rid) } }, b.key))
         if (fileName) projectFilesApi.remove(id, fileName).catch(() => {})
-      } else if (b.kind === 'multi') {
-        update((d) => {
-          const nd = removeKeyArtifacts(d, b.key)
-          return {
-            ...nd,
-            mapping: nd.mapping && {
-              ...nd.mapping,
-              entries: nd.mapping.entries.map((e) => (e.fileName === b.audioFileName ? { ...e, pageIndex: null, box: null, matchType: null } : e)),
-            },
-          }
-        })
-      } else {
-        // 识别句框不可删除，改为跳过赋码
-        update((d) => {
-          const ex = d.alignment.excludedBoxKeys ?? []
-          return ex.includes(b.key) ? d : { ...d, alignment: { ...d.alignment, excludedBoxKeys: [...ex, b.key] } }
-        })
+        setSelKey(null)
+        return
       }
-      setSelKey(null)
+      // 识别句框、多音频框不删数据，改为跳过赋码并从画布隐藏；保留选中，音轨面板显示「已跳过」可直接恢复（同原版）
+      if (data?.alignment.excludedBoxKeys?.includes(b.key)) return
+      update((d) => ({ ...d, alignment: { ...d.alignment, excludedBoxKeys: [...(d.alignment.excludedBoxKeys ?? []), b.key] } }))
     },
     [data, id, update],
   )
@@ -418,9 +405,11 @@ export default function EditorPage() {
       const ov = { ...(d.alignment.boxOverrides ?? {}) }
       delete ov[`multi:${fileName}`]
       if (target?.kind === 'multi') delete ov[target.key]
+      const ex = d.alignment.excludedBoxKeys
       return {
         ...d,
-        alignment: { ...d.alignment, boxOverrides: ov },
+        // 重新放置被跳过的音频即恢复赋码
+        alignment: { ...d.alignment, boxOverrides: ov, ...(ex && { excludedBoxKeys: ex.filter((k) => k !== `multi:${fileName}`) }) },
         mapping: d.mapping && {
           ...d.mapping,
           entries: d.mapping.entries.map((e) =>
@@ -449,7 +438,12 @@ export default function EditorPage() {
     const rect = e.currentTarget.getBoundingClientRect()
     const x = (e.clientX - rect.left) / ratio
     const y = (e.clientY - rect.top) / ratio
-    const target = (byPage.get(page) ?? []).find((b) => x >= b.box.x && x <= b.box.x + b.box.width && y >= b.box.y && y <= b.box.y + b.box.height && b.kind !== 'sentence')
+    const ex = data?.alignment.excludedBoxKeys ?? []
+    // 已跳过的多音频框不绘制，也不参与命中
+    const target = (byPage.get(page) ?? []).find(
+      (b) =>
+        x >= b.box.x && x <= b.box.x + b.box.width && y >= b.box.y && y <= b.box.y + b.box.height && b.kind !== 'sentence' && !(b.kind === 'multi' && ex.includes(b.key)),
+    )
     setDragOverKey(null)
     placeAudio(fileName, page, x, y, target)
   }
@@ -617,7 +611,7 @@ export default function EditorPage() {
   const displayWidth = BASE_WIDTH * zoom
   const excluded = new Set(data?.alignment.excludedBoxKeys ?? [])
   const placedPages = new Map<string, number[]>()
-  for (const b of boxes) if (b.audioFileName && b.kind !== 'sentence') placedPages.set(b.audioFileName, [...(placedPages.get(b.audioFileName) ?? []), b.pageIndex])
+  for (const b of boxes) if (b.audioFileName && b.kind !== 'sentence' && !excluded.has(b.key)) placedPages.set(b.audioFileName, [...(placedPages.get(b.audioFileName) ?? []), b.pageIndex])
 
   return (
     <div className="fixed inset-0 z-[210] flex flex-col bg-white">
@@ -698,6 +692,7 @@ export default function EditorPage() {
               <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 pb-2">
                 {data.mapping.entries.map((e) => {
                   const pages = placedPages.get(e.fileName) ?? []
+                  const skipped = e.pageIndex != null && !!e.box && excluded.has(`multi:${e.fileName}`)
                   return (
                     <div
                       key={e.fileName}
@@ -717,7 +712,7 @@ export default function EditorPage() {
                         <span className="truncate" title={e.originalName}>{e.originalName}</span>
                       </div>
                       <div className="mt-0.5 text-[11px] text-slate-400">
-                        {pages.length ? `已放置：第 ${[...new Set(pages)].sort((a, b) => a - b).join('、')} 页` : '未放置'}
+                        {pages.length ? `已放置：第 ${[...new Set(pages)].sort((a, b) => a - b).join('、')} 页` : skipped ? '已跳过（点击后可在音轨面板恢复）' : '未放置'}
                       </div>
                     </div>
                   )
@@ -783,6 +778,8 @@ export default function EditorPage() {
                           {(byPage.get(page) ?? []).map((b) => {
                             const active = b.key === selKey
                             const ex = excluded.has(b.key)
+                            // 已删除（跳过赋码）的识别句框、多音频框不再绘制；自定义区域仍画灰色虚线
+                            if (ex && b.kind !== 'custom') return null
                             const entry = data.aux.entryBoxKey === b.key
                             // 所属导出区域：整页区域的点阵画在页面层，这里只画框级区域
                             const region = ex ? undefined : plan?.byBoxKey.get(b.key)
@@ -796,7 +793,7 @@ export default function EditorPage() {
                                 : b.kind === 'multi'
                                   ? 'border-violet-500 bg-violet-500/10'
                                   : 'border-rose-400 bg-rose-400/10'
-                            const deleteTitle = b.kind === 'sentence' ? '不赋码（Delete）' : b.kind === 'multi' ? '移除放置（Delete）' : '删除区域（Delete）'
+                            const deleteTitle = b.kind === 'custom' ? '删除区域（Delete）' : '不赋码（Delete）'
                             return (
                               <div
                                 key={b.key}

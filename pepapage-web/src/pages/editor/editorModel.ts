@@ -288,21 +288,26 @@ function unionBox(bs: Box[]): Box {
 
 type PlanSentence = { pageIndex: number; sentenceIndex: number; box?: Box }
 
-/** 同页相邻句按垂直间距合并为段落：off 不合并；normal 间距 < 0.8 行高；loose < 1.6 行高。 */
-function paragraphs<T extends PlanSentence>(sentences: T[], merge: string): T[][] {
+/**
+ * 同页相邻句合并为段落，遇分栏断开。同一行（顶边差 < 半行高）须水平间距 < 1 行高；
+ * 上下相邻须水平方向有重叠，垂直间距 off 不合并、normal < 0.8 行高、loose < 1.6 行高。solo 为真的句子单独成段。
+ */
+function paragraphs<T extends PlanSentence>(sentences: T[], merge: string, solo: (s: T) => boolean = () => false): T[][] {
   const factor = ({ off: -1e9, normal: 0.8, loose: 1.6 } as Record<string, number>)[merge] ?? 0.8
   const groups: T[][] = []
   for (const s of sentences) {
-    if (groups.length) {
+    if (groups.length && !solo(s)) {
       const g = groups[groups.length - 1]
       const last = g[g.length - 1]
-      if (last.pageIndex === s.pageIndex && last.box && s.box) {
+      if (!solo(last) && last.pageIndex === s.pageIndex && last.box && s.box) {
         const lb = last.box
         const sb = s.box
         const lineH = Math.min(lb.height, sb.height) || 1
         const gap = sb.y - (lb.y + lb.height)
-        const sameLine = Math.abs(sb.y - lb.y) < lineH * 0.5
-        if (sameLine || (factor > 0 && gap < lineH * factor)) {
+        const hGap = Math.max(sb.x - (lb.x + lb.width), lb.x - (sb.x + sb.width))
+        const sameLine = Math.abs(sb.y - lb.y) < lineH * 0.5 && hGap < lineH
+        const stacked = factor > 0 && gap < lineH * factor && hGap < 0
+        if (sameLine || stacked) {
           g.push(s)
           continue
         }
@@ -345,6 +350,18 @@ export function planCodes(audioMode: string, d: EditorData): CodePlan {
   }
 
   const sentences = d.ocr?.sentences ?? []
+  // 编辑器的删框、改框、改音频都按句记 p<page>:s<i>，段落/整页区域键对不上：分组前剔除删掉的句子、
+  // 换上改过的框；单独设过音频或设为入口的句子单独成段。否则这些编辑在导出时不生效
+  const kept = sentences
+    .filter((s) => !excluded.has(sentenceKey(s.pageIndex, s.sentenceIndex)))
+    .map((s) => {
+      const ov = overrides[sentenceKey(s.pageIndex, s.sentenceIndex)]
+      return ov ? { ...s, box: ov } : s
+    })
+  const solo = (s: PlanSentence) => {
+    const k = sentenceKey(s.pageIndex, s.sentenceIndex)
+    return k in manual || !!customEntries[k]?.fileName || Math.trunc(Number(repeats[k] ?? 1) || 1) > 1 || aux.entryBoxKey === k
+  }
   const times = new Map(al.alignments.map((a) => [a.sentenceIndex, a]))
   const segOf = (s: PlanSentence) => {
     const a = times.get(s.sentenceIndex)
@@ -358,7 +375,7 @@ export function planCodes(audioMode: string, d: EditorData): CodePlan {
         add(key, s.pageIndex, s.box, { segments: segOf(s) }, [key])
       }
     } else if (aux.level === 'paragraph') {
-      for (const g of paragraphs(sentences.filter((s) => s.box), aux.lineMerge)) {
+      for (const g of paragraphs(kept.filter((s) => s.box), aux.lineMerge, solo)) {
         const segs = cleanSegments(g.flatMap(segOf))
         const members = g.map((s) => sentenceKey(s.pageIndex, s.sentenceIndex))
         const key = g.length === 1 ? members[0] : `seg:${g[0].sentenceIndex}-${g[g.length - 1].sentenceIndex}`
@@ -366,7 +383,7 @@ export function planCodes(audioMode: string, d: EditorData): CodePlan {
       }
     } else {
       for (const p of d.ocr?.pages ?? []) {
-        const ps = sentences.filter((s) => s.pageIndex === p.index)
+        const ps = kept.filter((s) => s.pageIndex === p.index)
         const segs = cleanSegments(ps.flatMap(segOf))
         const box = { x: 0, y: 0, width: p.width || 0, height: p.height || 0 }
         const members = ps.filter((s) => s.box).map((s) => sentenceKey(s.pageIndex, s.sentenceIndex))

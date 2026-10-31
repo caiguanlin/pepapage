@@ -267,11 +267,17 @@ export function ProjectCard({
         onClick={opening ? undefined : onBodyClick}
         className={`px-5 pb-2 pt-4 ${opening ? 'cursor-wait' : onBodyClick ? 'cursor-pointer' : ''}`}
       >
-        <div
-          className="truncate text-xs font-bold uppercase tracking-tight text-slate-900 transition-colors group-hover:text-indigo-600"
-          title={p.title}
-        >
-          {p.title}
+        {/* 标题行右侧"原创"徽标：原版构建代码里绘本源卡片固定显示（无条件），样式 text-indigo-500 bg-indigo-50 */}
+        <div className="flex items-center gap-2">
+          <div
+            className="min-w-0 flex-1 truncate text-xs font-bold uppercase tracking-tight text-slate-900 transition-colors group-hover:text-indigo-600"
+            title={p.title}
+          >
+            {p.title}
+          </div>
+          <span className="shrink-0 rounded bg-indigo-50 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest text-indigo-500">
+            原创
+          </span>
         </div>
         <div className="mt-1 truncate text-[9px] font-bold text-slate-500" title={projectStats(p)}>
           {projectStats(p)}

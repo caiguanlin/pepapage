@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
-import { ArrowDown, ArrowLeft, ArrowUp, ChevronRight, Download, FolderInput, FolderPlus, Plus, Trash2, Upload } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ArrowUp, BookOpen, ChevronRight, Download, FolderInput, FolderPlus, Plus, Trash2, Upload } from 'lucide-react'
 import { coursewareApi, folderApi, projectApi } from '../../api/books'
 import { bookActionApi } from '../../api/projectFiles'
 import type { BookFolder, BookProject } from '../../api/types'
@@ -117,11 +117,12 @@ export default function PictureBooksPage() {
     return list
   }, [folders, folderId])
 
+  // 原版切到另一个排序键时固定回到升序，再点同一个键才切换升降
   function toggleSort(key: SortKey) {
     if (sort === key) setOrder(order === 'asc' ? 'desc' : 'asc')
     else {
       setSort(key)
-      setOrder(key === 'title' ? 'asc' : 'desc')
+      setOrder('asc')
     }
   }
 
@@ -271,7 +272,7 @@ export default function PictureBooksPage() {
   const breadcrumb = (
     <>
       <Link to="/picture-books" className={crumbs.length || searching ? 'hover:text-slate-800' : 'font-bold text-slate-800'}>
-        绘本源
+        绘本书籍
       </Link>
       {crumbs.map((f, i) => (
         <span key={f.id} className="flex min-w-0 items-center gap-2">
@@ -313,7 +314,7 @@ export default function PictureBooksPage() {
 
   return (
     <>
-      <TopBar breadcrumb={breadcrumb} search={keyword} onSearchChange={setKeyword} />
+      <TopBar breadcrumb={breadcrumb} search={keyword} onSearchChange={setKeyword} searchPlaceholder="搜索绘本 / 文件夹..." />
       <input
         ref={importInput}
         type="file"
@@ -346,7 +347,8 @@ export default function PictureBooksPage() {
           </div>
 
           <div className="mb-5 flex flex-wrap items-center gap-2 text-sm">
-            {(['createdAt', 'title'] as const).map((k) => (
+            {/* 原版顺序是 名称、日期，默认按日期降序 */}
+            {(['title', 'createdAt'] as const).map((k) => (
               <button
                 key={k}
                 onClick={() => toggleSort(k)}
@@ -354,7 +356,7 @@ export default function PictureBooksPage() {
                   sort === k ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-100'
                 }`}
               >
-                {k === 'createdAt' ? '创建日期' : '名称'}
+                {k === 'createdAt' ? '日期' : '名称'}
                 {sort === k && (order === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
               </button>
             ))}
@@ -417,20 +419,26 @@ export default function PictureBooksPage() {
               ))}
             </div>
           ) : isEmpty ? (
-            <div className="flex flex-col items-center justify-center gap-3 rounded-3xl border border-dashed border-slate-300 py-24 text-slate-400">
-              <p className="text-base font-bold text-slate-600">{searching ? '没有找到匹配的项目' : '这里还是空的'}</p>
-              <p className="text-sm">{searching ? '换个关键词试试' : '导入课包，或上传 PDF / 图片制作第一本点读绘本'}</p>
+            // 空状态排版照原版构建代码：w-20 图标块 + 标题 + 说明，仅非搜索态显示两个按钮
+            <div className="flex flex-col items-center justify-center py-28 text-center">
+              <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-3xl bg-indigo-50">
+                <BookOpen size={36} className="text-indigo-400" />
+              </div>
+              <h2 className="text-lg font-bold text-slate-800">{searching ? '没有找到匹配的内容' : '还没有绘本，开始创作吧'}</h2>
+              <p className="mt-2 max-w-sm text-sm text-slate-400">
+                {searching ? '换个关键词试试，书名、简介、画风都可以搜索。' : '可以先新建文件夹整理素材，也可以直接制作一本绘本项目。'}
+              </p>
               {!searching && (
-                <div className="mt-2 flex gap-2">
-                  <button onClick={() => importInput.current?.click()} className={btn}>
-                    <Upload size={16} /> 导入课包
-                  </button>
-                  <button onClick={() => setModal({ kind: 'newFolder' })} className={btn}>
+                <div className="mt-6 flex items-center gap-3">
+                  <button
+                    onClick={() => setModal({ kind: 'newFolder' })}
+                    className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition-all hover:border-indigo-200 hover:text-indigo-600"
+                  >
                     <FolderPlus size={16} /> 新建文件夹
                   </button>
                   <button
                     onClick={() => setCreateOpen(true)}
-                    className="flex items-center gap-1.5 rounded-full bg-indigo-600 px-4 py-2 text-sm font-bold text-white hover:bg-indigo-700"
+                    className="flex items-center gap-1.5 rounded-full bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-indigo-700"
                   >
                     <Plus size={16} /> 制作项目
                   </button>

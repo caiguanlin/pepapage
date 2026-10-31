@@ -390,4 +390,42 @@ class AnalysisServiceTest {
         assertEquals(0, out.get("lines").size());
         assertEquals(0, out.get("counts").get("matched").asInt());
     }
+
+    /** OCR 带版面区域类型时 blocks/sentences 原样输出 regionType；没有时 blocks 为显式 null、sentences 省略。 */
+    @Test
+    void regionTypePassesThroughFromOcr() throws Exception {
+        project("multi");
+        ObjectNode ocr = MAPPER.createObjectNode();
+        ocr.put("version", 1).put("sourceType", "pdf").put("pageCount", 1).put("sentenceCount", 2);
+        ocr.putArray("pages").addObject().put("index", 1).put("width", 1087).put("height", 1673)
+                .put("sentenceStart", 0).put("sentenceCount", 2);
+        ArrayNode ocrSentences = ocr.putArray("sentences");
+        ObjectNode s0 = ocrSentences.addObject();
+        s0.put("id", "s0").put("pageIndex", 1).put("sentenceIndex", 0).put("text", "Title")
+                .put("regionIndex", 0).put("regionType", "doc_title");
+        ObjectNode s1 = ocrSentences.addObject();
+        s1.put("id", "s1").put("pageIndex", 1).put("sentenceIndex", 1).put("text", "Body")
+                .put("regionIndex", 1);
+        ArrayNode ocrBlocks = ocr.putArray("blocks");
+        ObjectNode b0 = ocrBlocks.addObject();
+        b0.put("id", "b0").put("pageIndex", 1).put("text", "Title").put("sentenceIndex", 0)
+                .put("regionIndex", 0).put("regionType", "doc_title");
+        ObjectNode b1 = ocrBlocks.addObject();
+        b1.put("id", "b1").put("pageIndex", 1).put("text", "Body").put("sentenceIndex", 1)
+                .put("regionIndex", 1).put("regionType", "text");
+        ObjectNode b2 = ocrBlocks.addObject();
+        b2.put("id", "b2").put("pageIndex", 1).put("text", "Ungrouped").put("sentenceIndex", 1);
+        files.put("book-ocr.json", ocr.toString());
+
+        JsonNode out = run();
+
+        JsonNode blocks = out.get("blocks");
+        assertEquals("doc_title", blocks.get(0).get("regionType").asText());
+        assertEquals("text", blocks.get(1).get("regionType").asText());
+        assertTrue(blocks.get(2).get("regionType").isNull());
+        assertTrue(serialize(out).contains("\"regionType\":null"));
+
+        assertEquals("doc_title", out.get("sentences").get(0).get("regionType").asText());
+        assertFalse(out.get("sentences").get(1).has("regionType"));
+    }
 }

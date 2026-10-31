@@ -271,6 +271,8 @@ export interface AnalysisSentence {
   text: string
   box?: Box
   regionIndex?: number
+  /** 版面区域类型（原版 Sqe 键值，如 doc_title/text）；OCR 分组无类型时省略 */
+  regionType?: string
   /** 来自 alignment，未匹配为 -1 */
   start: number
   end: number
@@ -281,6 +283,8 @@ export interface AnalysisBlock {
   id: string
   pageIndex: number
   regionIndex: number | null
+  /** 版面区域类型（原版 Sqe 键值）；OCR 无版面区域或老文件没有该字段时为 null，不显示分组标题 */
+  regionType: string | null
   text: string
   box?: Box
   sentenceIndex: number

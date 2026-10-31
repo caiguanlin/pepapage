@@ -28,9 +28,13 @@ import java.util.Map;
  *       否则页映射有该行为 heuristic，page = 映射值 + 1；都没有为 none。</li>
  *   <li>blocks：single 所属句 alignment start &gt;= 0 为 matched 并继承句子时间；tts 在 book-audio-mapping 里有该句为 tts
  *       并附签名 audioUrl；其余（含 multi）为 unmatched，时间 -1。</li>
+ *   <li>regionType：版面区域类型，来自 book-ocr.json（worker 按区域分组 OCR 且组带类型时写入，值集见原版
+ *       Sqe，如 doc_title/text/image；原版对 sentences 与 blocks 一同写入）。原样透传：blocks 没有该字段时
+ *       显式 null，sentences 没有时省略（与各自 regionIndex 的处理一致）。解析详情弹窗用它把文字块按相邻
+ *       regionIndex+regionType 分组并显示组标题（原版 Sqe/kqe/Nqe），无值时不显示组标题，与原版一致。</li>
  * </ul>
  * 响应用 ObjectNode 组装：全局配置 default-property-inclusion=non_null 会丢掉 Map 里的 null，
- * 而前端类型要求 pdfUrl/audioUrl/page/sentenceIndex/regionIndex 显式为 null。
+ * 而前端类型要求 pdfUrl/audioUrl/page/sentenceIndex/regionIndex 显式为 null（regionType 仅 blocks 要求显式 null）。
  */
 @Service
 @RequiredArgsConstructor
@@ -106,6 +110,9 @@ public class AnalysisService {
             if (s.hasNonNull("regionIndex")) {
                 o.put("regionIndex", s.get("regionIndex").asInt());
             }
+            if (s.hasNonNull("regionType")) {
+                o.put("regionType", s.get("regionType").asText());
+            }
             o.put("start", time(a, "start"));
             o.put("end", time(a, "end"));
             if (a != null && a.path("words").isArray()) {
@@ -150,6 +157,12 @@ public class AnalysisService {
                 o.put("regionIndex", b.get("regionIndex").asInt());
             } else {
                 o.putNull("regionIndex");
+            }
+            // 原样透传 book-ocr.json 的版面区域类型；OCR 没有时显式 null（前端不显示组标题）
+            if (b.hasNonNull("regionType")) {
+                o.put("regionType", b.get("regionType").asText());
+            } else {
+                o.putNull("regionType");
             }
             o.put("text", b.path("text").asText(""));
             if (b.hasNonNull("box")) {

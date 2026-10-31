@@ -211,7 +211,8 @@ export function MoveDialog({
 const SOURCE_LABEL: Record<string, string> = { pdf: 'PDF', images: '图片', image: '图片' }
 const REFRESH_MS = 2500
 
-/** 版面区域类型 → 组标题（原版 Sqe / kqe）。/analysis 目前不返回 regionType，有才显示组标题。 */
+/** 版面区域类型 → 组标题（原版 Sqe / kqe）。/analysis 的 blocks[].regionType 透传 book-ocr.json，
+ *  OCR 没有版面区域时为 null，该组不显示组标题（与原版一致）。 */
 const REGION_LABEL: Record<string, string> = {
   doc_title: '标题',
   title: '标题',
@@ -246,11 +247,9 @@ function fmtTime(t: number) {
   return `${m}:${String(s).padStart(2, '0')}.${String(cs % 100).padStart(2, '0')}`
 }
 
-type BlockWithType = AnalysisBlock & { regionType?: string }
-
 /** 按相邻的 regionIndex（及 regionType）分组，原版 Nqe。 */
-function groupByRegion(blocks: BlockWithType[]) {
-  const groups: { regionIndex: number | null; regionType?: string; blocks: BlockWithType[] }[] = []
+function groupByRegion(blocks: AnalysisBlock[]) {
+  const groups: { regionIndex: number | null; regionType: string | null; blocks: AnalysisBlock[] }[] = []
   for (const b of blocks) {
     const last = groups[groups.length - 1]
     if (last && last.regionIndex === b.regionIndex && last.regionType === b.regionType) last.blocks.push(b)
@@ -374,7 +373,7 @@ export function ProjectDetailDialog({
 
   const pageNo = page + 1
   const pageBlocks = useMemo(
-    () => (data?.blocks ?? []).filter((b) => b.pageIndex === pageNo) as BlockWithType[],
+    () => (data?.blocks ?? []).filter((b) => b.pageIndex === pageNo),
     [data, pageNo],
   )
   const sentenceBox = useCallback(

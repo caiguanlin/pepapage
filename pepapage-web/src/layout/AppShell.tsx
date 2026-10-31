@@ -23,12 +23,12 @@ export default function AppShell() {
 
   return (
     <div className="flex h-full">
-      <aside className="flex w-[184px] shrink-0 flex-col border-r border-shell-border bg-shell">
+      <aside className="flex w-[184px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
         <div className="flex h-[73px] items-center gap-3 px-5">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500 text-lg font-extrabold text-white">
             P
           </div>
-          <span className="text-lg font-bold text-shell-text">PepaPage</span>
+          <span className="text-lg font-bold text-sidebar-text">PepaPage</span>
         </div>
 
         <nav className="flex flex-col gap-1 px-2">
@@ -38,13 +38,13 @@ export default function AppShell() {
               to={to}
               className={({ isActive }) =>
                 `flex items-center gap-3 rounded-xl px-3 py-5 text-[15px] font-bold transition-colors ${
-                  isActive ? `bg-shell-text ${activeText}` : 'text-shell-muted hover:bg-white/5'
+                  isActive ? `bg-sidebar-active ${activeText}` : 'text-sidebar-muted hover:bg-black/5'
                 }`
               }
             >
               {({ isActive }) => (
                 <>
-                  <Icon size={20} className={isActive ? '' : 'text-shell-icon'} />
+                  <Icon size={20} className={isActive ? '' : 'text-sidebar-icon'} />
                   {label}
                 </>
               )}
@@ -53,21 +53,21 @@ export default function AppShell() {
         </nav>
 
         <div className="mt-auto space-y-1 px-2 pb-3">
-          <div className="truncate px-3 py-2 text-xs text-shell-muted" title={user?.email}>
+          <div className="truncate px-3 py-2 text-xs text-sidebar-muted" title={user?.email}>
             {user?.nickname}
           </div>
-          <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-shell-muted hover:bg-white/5">
-            <Settings size={16} className="text-shell-icon" />
+          <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-sidebar-muted hover:bg-black/5">
+            <Settings size={16} className="text-sidebar-icon" />
             设置
           </button>
           <button
             onClick={logout}
-            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-shell-muted hover:bg-white/5"
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-sidebar-muted hover:bg-black/5"
           >
-            <LogOut size={16} className="text-shell-icon" />
+            <LogOut size={16} className="text-sidebar-icon" />
             退出登录
           </button>
-          <div className="px-3 pt-2 text-[10px] text-shell-version">软件版本：v{APP_VERSION}</div>
+          <div className="px-3 pt-2 text-[10px] text-sidebar-version">软件版本：v{APP_VERSION}</div>
         </div>
       </aside>
 

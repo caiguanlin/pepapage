@@ -75,3 +75,67 @@ Redis Stream 消息 `{taskId, taskType}`；taskType：`book_full`、`book_realig
 创建表单的限制：创建表单不实现"同目录同名音频自动附带"。原版只允许选一个 PDF，再扫描其所在目录；浏览器拿不到目录内容。图片项目的标题也拿不到所在文件夹名，沿用 `titleFromImages`。
 
 API 封装：web-workbench 只改 `src/api/books.ts` 现有段与 `types.ts`；web-editor 新建 `src/api/projectFiles.ts`、`src/api/editorTypes.ts`。`src/router.tsx` 由 web-editor 追加自己的三条路由，web-workbench 不动 router 其他部分以外的行。
+
+## 5. 编辑器音频库（2026-10-31 新增，single 编辑器右侧「音频」列）
+
+用户在编辑器里上传的音频作为额外音源，上传后单独做语音识别（转码 + faster-whisper），识别出的字幕行和词时间只用于该音源的按词裁剪，**不参与原书对齐**，不改 `subtitles.lrc`、`word-timestamps.json`、`book-alignment.json`，也不改项目 status 和 processingSteps。
+
+### 5.1 文件
+
+| 文件 | 写入方 | 内容 |
+|---|---|---|
+| `custom-audio-lib-<base36ts><4位随机>.<ext>` | 浏览器直传 | 音频原文件。沿用 `custom-audio-` 前缀，现有的删除白名单、导出剪辑、课件打包不用改 |
+| `book-audio-library.json` | **只有 server 写**（不进前端 JSON 写白名单） | 音频库清单，见 5.2 |
+| `<音频文件名>.asr.json` | worker | 识别结果，见 5.3；前端用现有 `GET files/json?name=` 读取 |
+
+框与音源的绑定仍写在 `book-custom-audio.json`（`entries[boxKey] = {fileName, originalName, updatedAt, start?, end?}`），start/end 是相对该音频文件的裁剪秒数。
+
+### 5.2 清单 `book-audio-library.json`
+
+```json
+{"version":1,"items":[{
+  "fileName":"custom-audio-lib-mh3k2a9xq1.mp3","originalName":"page3.mp3",
+  "status":"queued","progress":0,"error":null,
+  "duration":null,"lineCount":null,"wordCount":null,"asrFile":null,
+  "taskId":"190...","createdAt":"2026-10-31T08:00:00Z","updatedAt":"2026-10-31T08:00:00Z"}]}
+```
+
+- `status`：`queued` / `running` / `succeeded` / `failed`。`progress` 0–100。`error` 仅 failed 时有值。
+- succeeded 时 `duration`（秒）、`lineCount`、`wordCount`、`asrFile`（= `<fileName>.asr.json`）有值。识别不到语音也算 succeeded，`lineCount=0`。
+- items 按加入顺序排列；不存在清单文件视为 `{"version":1,"items":[]}`。
+- server 对同一项目的清单读改写加锁（单实例 JVM 内按项目 id 加锁即可）。
+
+### 5.3 识别结果 `<fileName>.asr.json`
+
+```json
+{"version":1,"fileName":"custom-audio-lib-mh3k2a9xq1.mp3","duration":12.48,"language":"en","model":"faster-whisper-base",
+ "lines":[{"index":0,"start":0.52,"end":2.10,"text":"I see a red bird","words":[{"text":"I","start":0.52,"end":0.61}]}]}
+```
+
+时间相对该音频文件，单位秒、保留 3 位小数。`lines[].index` 0 起始、连续；词结构与 `/analysis` 的 `lines[].words` 一致。
+
+### 5.4 接口（全部 `/api` 前缀、Bearer 鉴权、校验项目归属）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | /book-projects/{id}/upload-policy | kind 增加 `library_audio`：不需要 boxKey，不受项目 status 限制，key 为 `custom-audio-lib-<base36ts><4位随机>.<ext>`，单文件上限 200 MiB |
+| GET | /book-projects/{id}/audio-library | 返回清单 `{version,items}` |
+| POST | /book-projects/{id}/audio-library | body `{fileName, originalName}`。加入并开始识别：fileName 必须是安全相对名、以 `custom-audio-` 开头、不以 `.json` 结尾、OSS 上已存在。已在清单里时：queued/running 直接返回该项，其他状态重置为 queued 重新识别（用于失败重试，也用于给旧的 `custom-audio-*` 文件补识别）。先写清单再投递 `library_asr` 任务（消息附加字段 `fileName`）。返回该项 |
+| DELETE | /book-projects/{id}/audio-library?fileName= | 从清单移除，删除音频文件和 `.asr.json`，并从 `book-custom-audio.json` 删掉所有引用该文件的绑定。返回 `{removedBoxKeys:[...]}` |
+
+### 5.5 worker 任务 `library_asr`
+
+- Redis 消息 `{taskId, taskType:"library_asr", fileName, projectId, audioMode}`；用现有 `GET /internal/tasks/{taskId}` 取 `ossPrefix`。
+- 步骤：下载 fileName → 转 16k 单声道 WAV（临时文件，不上传）→ `asr.transcribe` → 写 `<fileName>.asr.json` → 回报 succeeded。
+- 进度回调 `POST /internal/tasks/{taskId}/library-progress`，body `{fileName, status:"running"|"succeeded"|"failed", progress?, error?, duration?, lineCount?, wordCount?, asrFile?}`。server 更新清单对应项和 process_task.status（running/succeeded/failed），**不碰项目**。清单里找不到该项（识别中被删除）时返回成功并忽略，succeeded 时顺手删掉 worker 刚写的 `.asr.json`。
+- 任何异常只回报该项 failed（error 截断 900 字），**绝不**调用 `/progress` 改项目状态。
+- 旧 worker 不认识 `library_asr`，会把项目标成失败。上线顺序：先重启新 worker，再启用前端入口。
+
+### 5.6 前端行为（single 编辑器）
+
+- 右侧拆成两列：「音频」列在 PDF 与「识别文字」列之间，「识别文字」列在最右。两列各自可收起。
+- 音频列：第一项固定为原书音频（识别结果即 `/analysis` 的 lines），其后是清单项。上传不需要先选中框，可多选文件；每项显示状态（排队中 / 识别中 N% / N 句 / 失败 + 重试）、试听、「使用」（选中框时绑定到该框）、删除（仅清单项）。有 queued/running 项时每 2 秒轮询清单。
+- 点击音频列某项即在识别文字列查看该音源的识别文字；选中框时自动切到该框当前的音源。
+- 识别文字列点词/拖词：若查看的音源就是选中框的音源，按现有规则改区间（原书音源写 manualRanges，清单音源写 custom-audio 的 start/end）；若不是，先把框改绑到该音源再按词设区间。两者都只改内存并标记未保存，随「保存」写入。
+- 音轨面板「更换音源」也走音频库：上传 `library_audio` → POST 加入清单 → 绑定到当前框。
+- 清单里的文件在解绑、换绑、删框时**不删除**，只能在音频列删除；不在清单里的旧 `custom-audio-*` 文件保留原来"没有框再用就删"的逻辑。

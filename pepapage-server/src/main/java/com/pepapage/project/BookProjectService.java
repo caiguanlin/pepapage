@@ -31,6 +31,8 @@ public class BookProjectService {
     public static final List<String> STEP_KEYS = List.of("ocr", "audio_conversion", "transcription", "alignment");
     /** 区域自定义音频单文件上限 50 MiB */
     static final long CUSTOM_AUDIO_MAX_BYTES = 50L * 1024 * 1024;
+    /** 音频库音频单文件上限 200 MiB（契约 §5.4） */
+    static final long LIBRARY_AUDIO_MAX_BYTES = 200L * 1024 * 1024;
 
     private final BookProjectMapper projectMapper;
     private final BookFolderService folderService;
@@ -99,6 +101,11 @@ public class BookProjectService {
             }
             String key = StorageKeys.projectPrefix(userId, id) + StorageKeys.customAudioName(req.boxKey(), req.fileName());
             return ossService.createUploadPolicy(key, CUSTOM_AUDIO_MAX_BYTES);
+        }
+        if ("library_audio".equals(req.kind())) {
+            // 音频库音频：不需要 boxKey，也不受项目 status 限制（契约 §5.4）
+            String key = StorageKeys.projectPrefix(userId, id) + StorageKeys.libraryAudioName(req.fileName());
+            return ossService.createUploadPolicy(key, LIBRARY_AUDIO_MAX_BYTES);
         }
         if (!"uploading".equals(p.getStatus())) {
             throw new BizException("项目已提交，不能再上传源文件");

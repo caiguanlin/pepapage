@@ -26,9 +26,9 @@ public final class ProjectDtos {
             @DecimalMin(value = "0.5", message = "语速范围 0.5-1.5") @DecimalMax(value = "1.5", message = "语速范围 0.5-1.5") BigDecimal ttsSpeed) {
     }
 
-    /** kind: source（书籍 PDF）/ audio（单音频整书音频）/ multi_audio（多音频之一）/ custom_audio（区域自定义音频，需 boxKey） */
+    /** kind: source（书籍 PDF）/ audio（单音频整书音频）/ multi_audio（多音频之一）/ custom_audio（区域自定义音频，需 boxKey）/ library_audio（音频库音频，契约 §5） */
     public record UploadPolicyRequest(
-            @NotBlank @Pattern(regexp = "source|audio|multi_audio|custom_audio", message = "文件类型不正确") String kind,
+            @NotBlank @Pattern(regexp = "source|audio|multi_audio|custom_audio|library_audio", message = "文件类型不正确") String kind,
             @NotBlank(message = "文件名不能为空") String fileName,
             @Size(max = 200) String boxKey) {
     }

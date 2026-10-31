@@ -1,5 +1,6 @@
 package com.pepapage.storage;
 
+import java.security.SecureRandom;
 import java.util.Locale;
 import java.util.UUID;
 
@@ -40,6 +41,20 @@ public final class StorageKeys {
             sanitized = sanitized.substring(0, 80);
         }
         return "custom-audio-" + sanitized + "-" + Long.toString(System.currentTimeMillis(), 36)
+                + "." + extension(originalName, "mp3");
+    }
+
+    /** 音频库随机后缀字符集：小写字母与数字 */
+    private static final String RANDOM_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789";
+    private static final SecureRandom RANDOM = new SecureRandom();
+
+    /** 音频库音频：custom-audio-lib-<base36Timestamp><4位[a-z0-9]随机>.<ext>（相对项目目录的文件名）。 */
+    public static String libraryAudioName(String originalName) {
+        StringBuilder rnd = new StringBuilder(4);
+        for (int i = 0; i < 4; i++) {
+            rnd.append(RANDOM_CHARS.charAt(RANDOM.nextInt(RANDOM_CHARS.length())));
+        }
+        return "custom-audio-lib-" + Long.toString(System.currentTimeMillis(), 36) + rnd
                 + "." + extension(originalName, "mp3");
     }
 

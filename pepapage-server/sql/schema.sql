@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS process_task (
     id          BIGINT      NOT NULL PRIMARY KEY,
     user_id     BIGINT      NOT NULL,
     project_id  BIGINT      NOT NULL,
-    task_type   VARCHAR(32) NOT NULL COMMENT 'book_full / book_realign / book_tts',
+    task_type   VARCHAR(32) NOT NULL COMMENT 'book_full / book_realign / book_tts / book_export / library_asr',
     status      VARCHAR(16) NOT NULL COMMENT 'queued / running / succeeded / failed',
     error       VARCHAR(1000) NULL,
     created_at  DATETIME    NOT NULL,

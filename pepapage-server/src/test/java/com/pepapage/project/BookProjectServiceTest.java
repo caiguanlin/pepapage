@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.pepapage.common.BizException;
 import com.pepapage.folder.BookFolderService;
+import com.pepapage.project.dto.ProjectDtos.UploadPolicyRequest;
 import com.pepapage.project.entity.BookProject;
 import com.pepapage.project.entity.BookProject.ProcessingStep;
 import com.pepapage.project.mapper.BookProjectMapper;
@@ -11,6 +12,7 @@ import com.pepapage.storage.OssService;
 import com.pepapage.task.TaskService;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
+import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -163,5 +165,23 @@ class BookProjectServiceTest {
         assertEquals(3, p.getCurrentStepIndex());
         assertEquals("processing", p.getStatus());
         assertEquals(5, p.getMetadata().get("sentenceCount"));
+    }
+
+    /** 音频库凭证（契约 5.4）：key 为 custom-audio-lib-<base36ts><4位随机>.<ext>，上限 200 MiB，不受项目 status 限制。 */
+    @Test
+    void uploadPolicyLibraryAudioIgnoresStatus() {
+        project("single", "completed", true, "completed", "completed", "completed", "completed");
+        OssService.UploadPolicy policy =
+                new OssService.UploadPolicy("https://bucket.oss.com", "k", "p", "s", "ak", 1L);
+        when(ossService.createUploadPolicy(anyString(), eq(200L * 1024 * 1024))).thenReturn(policy);
+
+        OssService.UploadPolicy result = service.uploadPolicy(USER_ID, PROJECT_ID,
+                new UploadPolicyRequest("library_audio", "page3.mp3", null));
+
+        assertEquals(policy, result);
+        ArgumentCaptor<String> key = ArgumentCaptor.forClass(String.class);
+        verify(ossService).createUploadPolicy(key.capture(), eq(200L * 1024 * 1024));
+        assertTrue(key.getValue().matches("users/" + USER_ID + "/book-projects/" + PROJECT_ID
+                + "/custom-audio-lib-[0-9a-z]{12,}\\.mp3"));
     }
 }

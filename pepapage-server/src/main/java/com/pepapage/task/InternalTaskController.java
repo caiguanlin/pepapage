@@ -3,6 +3,7 @@ package com.pepapage.task;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.pepapage.common.BizException;
 import com.pepapage.common.Result;
+import com.pepapage.project.AudioLibraryService;
 import com.pepapage.project.entity.BookProject;
 import com.pepapage.project.entity.BookProject.ProcessingStep;
 import com.pepapage.project.mapper.BookProjectMapper;
@@ -33,6 +34,7 @@ public class InternalTaskController {
 
     private final ProcessTaskMapper taskMapper;
     private final BookProjectMapper projectMapper;
+    private final AudioLibraryService audioLibraryService;
 
     /** ossPrefix = users/{uid}/book-projects/{pid}/（以 / 结尾）。 */
     public record TaskDetail(ProcessTask task, BookProject project, Long userId, String ossPrefix) {
@@ -120,6 +122,14 @@ public class InternalTaskController {
                 .eq(ProcessTask::getId, taskId)
                 .set(ProcessTask::getStatus, taskStatus)
                 .set(ProcessTask::getError, "failed".equals(taskStatus) ? req.error() : null));
+        return Result.ok();
+    }
+
+    /** 音频库识别进度回调（契约 §5.5）：只更新清单对应项和任务状态，不碰项目。 */
+    @PostMapping("/{taskId}/library-progress")
+    public Result<Void> libraryProgress(@PathVariable Long taskId,
+                                        @Valid @RequestBody AudioLibraryService.LibraryProgressRequest req) {
+        audioLibraryService.libraryProgress(taskId, req);
         return Result.ok();
     }
 

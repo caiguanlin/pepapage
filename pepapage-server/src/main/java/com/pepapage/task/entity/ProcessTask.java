@@ -15,7 +15,7 @@ public class ProcessTask {
     private Long id;
     private Long userId;
     private Long projectId;
-    /** book_full / book_realign / book_tts */
+    /** book_full / book_realign / book_tts / book_export / library_asr */
     private String taskType;
     /** queued / running / succeeded / failed */
     private String status;

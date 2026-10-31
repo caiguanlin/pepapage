@@ -36,8 +36,16 @@ const PAPER_MM: Record<string, [number, number]> = { A4: [210, 297], A5: [148, 2
 const BASE_WIDTH = 860
 /** 拖动距离小于该显示像素视为单击，放置默认尺寸 */
 const CLICK_PX = 4
-/** 点阵预览（仅示意，不是实际码点） */
-const DOT_BG = { backgroundImage: 'radial-gradient(circle, rgba(15,23,42,.35) .6px, transparent .7px)', backgroundSize: '4px 4px' }
+/**
+ * 点阵预览（仅示意，不是实际码点）。原版预览是桌面 labOidOverlayRegions / labOidEntry 生成的码点 PNG
+ * （原构建 J@3843535 起），以页级 <img> inset-0 w-full h-full 随显示缩放整幅拉伸，Web 复刻无法生成真实码点。
+ * 以下按截图 analysis/screenshots/10-aux-enabled.png 估算：点距约 1mm（860px 宽显示下约 4.5px）、
+ * 点径约 2px，灰点取 slate 约 alpha .3。pitchPx 为当前缩放下每毫米的显示像素，点阵随缩放同步缩放（与原版 <img> 拉伸一致）。
+ */
+const dotPreviewBg = (pitchPx: number) => ({
+  backgroundImage: `radial-gradient(circle, rgba(15,23,42,.3) ${(pitchPx * 0.22).toFixed(2)}px, transparent ${(pitchPx * 0.28).toFixed(2)}px)`,
+  backgroundSize: `${pitchPx.toFixed(2)}px ${pitchPx.toFixed(2)}px`,
+})
 const HANDLE_POS: Record<Handle, string> = {
   nw: '-top-1.5 -left-1.5 cursor-nwse-resize',
   n: '-top-1.5 left-1/2 -translate-x-1/2 cursor-ns-resize',
@@ -92,7 +100,7 @@ function EntrySticker({ aux, displayWidth, displayHeight }: { aux: AuxCodeSettin
   const corner = 'absolute h-[18%] w-[18%] border-slate-700'
   return (
     <div className={`pointer-events-none absolute z-20 ${frame}`} style={{ left, top, width: w, height: h }} title={`入口码 ${aux.entryCode}`}>
-      <div className="absolute inset-[9%]" style={{ ...DOT_BG, backgroundSize: '3px 3px' }} />
+      <div className="absolute inset-[9%]" style={dotPreviewBg(pxPerMm)} />
       {st === 'focus' && (
         <>
           <span className={`${corner} top-0 left-0 border-t-2 border-l-2`} />
@@ -618,8 +626,11 @@ export default function EditorPage() {
         <button
           onClick={() => setShowExport(true)}
           disabled={!data?.aux.enabled}
-          title={data?.aux.enabled ? '' : '请先开启辅码'}
-          className="flex items-center gap-1 rounded-md bg-indigo-600 px-3 py-1.5 text-xs text-white hover:bg-indigo-700 disabled:opacity-40"
+          title={data?.aux.enabled ? '' : '请先开启「辅码开关」'}
+          className={`flex items-center gap-1 rounded-md px-3 py-1.5 text-xs transition-colors ${
+            // 禁用态照原构建 J@3855358：text-slate-400 bg-slate-100 cursor-not-allowed，非 indigo 加透明度
+            data?.aux.enabled ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'cursor-not-allowed bg-slate-100 text-slate-400'
+          }`}
         >
           <Share2 size={14} /> 导出点读包
         </button>
@@ -703,7 +714,7 @@ export default function EditorPage() {
                         displayWidth={displayWidth}
                         onPointerDown={onPageDown(page, ratio)}
                       >
-                        {data.aux.enabled && pageRegion && <div className="pointer-events-none absolute inset-0" style={DOT_BG} />}
+                        {data.aux.enabled && pageRegion && <div className="pointer-events-none absolute inset-0" style={dotPreviewBg(OCR_PX_PER_MM * ratio)} />}
                         {showCodes && pageRegion && (
                           <div className="pointer-events-none absolute top-1 left-1 z-20 rounded bg-slate-800/85 px-1 text-[10px] leading-4 text-white">
                             整页 {pageRegion.code}
@@ -746,7 +757,7 @@ export default function EditorPage() {
                                 onDragEnter={() => setDragOverKey(b.key)}
                                 onDragLeave={() => setDragOverKey((k) => (k === b.key ? null : k))}
                                 className={`absolute border ${color} ${b.shape === 'ellipse' ? 'rounded-full' : 'rounded-sm'} ${active ? 'z-10 !border-rose-600 shadow-[0_0_0_1px_rgba(225,29,72,.6)]' : ''} ${dragOverKey === b.key ? 'ring-2 ring-indigo-400' : ''} cursor-move`}
-                                style={{ ...boxStyle(b.box, ratio), ...(data.aux.enabled && boxRegion ? DOT_BG : null) }}
+                                style={{ ...boxStyle(b.box, ratio), ...(data.aux.enabled && boxRegion ? dotPreviewBg(OCR_PX_PER_MM * ratio) : null) }}
                               >
                                 {(entry || data.alignment.repeatCounts?.[b.key] || data.customAudio.entries[b.key] || code != null) && (
                                   <div className="pointer-events-none absolute -top-4 left-0 flex gap-0.5 text-[10px] leading-3 whitespace-nowrap">

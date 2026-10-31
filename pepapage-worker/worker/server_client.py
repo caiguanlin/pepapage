@@ -32,6 +32,12 @@ class ServerClient:
         res = self.session.post(f"{self.base_url}/internal/exports/{export_id}/progress", json=body, timeout=15)
         self._unwrap(res)
 
+    # ---- 音频库识别任务（只更新清单对应项，不碰项目状态）
+    def report_library(self, task_id: str, **fields: Any) -> None:
+        body = {k: v for k, v in fields.items() if v is not None}
+        res = self.session.post(f"{self.base_url}/internal/tasks/{task_id}/library-progress", json=body, timeout=15)
+        self._unwrap(res)
+
     @staticmethod
     def _unwrap(res: requests.Response) -> Any:
         try:

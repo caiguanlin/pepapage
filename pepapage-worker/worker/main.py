@@ -1,5 +1,6 @@
-"""消费 Redis Stream 中的制作任务。
+"""消费 Redis Stream 中的任务。
 
+任务类型：book_full / book_realign / book_tts / book_export / library_asr。
 运行：python -m worker.main
 """
 from __future__ import annotations
@@ -12,6 +13,7 @@ import time
 import redis
 from dotenv import load_dotenv
 
+from .library import run_library_asr
 from .pipeline import run_book_export, run_book_full, run_book_realign, run_book_tts
 from .server_client import ServerClient
 
@@ -80,6 +82,10 @@ def handle(server: ServerClient, fields: dict[str, str]) -> None:
             return
         # 导出只回调 /internal/exports/{id}/progress，异常在内部上报
         run_book_export(server, export_id, fields)
+        return
+    if task_type == "library_asr":
+        # 音频库识别只回调 /internal/tasks/{id}/library-progress 更新清单项，异常在内部上报，绝不改项目状态
+        run_library_asr(server, task_id, fields)
         return
     try:
         detail = server.task_detail(task_id)

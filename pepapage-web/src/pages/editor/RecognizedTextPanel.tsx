@@ -1,6 +1,7 @@
 // single 右栏「识别文字」（UI 规格 7.5，截图 analysis/screenshots/09、11）：按字幕行分组显示词，选中框时高亮区间内的词。
 // 点词行为以截图 11 的提示为准：未选框时点词试听；选中可编辑框后，点区间外的词把首/末扩展到该词，
 // 点首/末词把它从区间里去掉（向内收缩），成功即写入音频区间；「清空」去掉高亮，下一次点词从该词重新开始。
+// 选中可编辑框后也可按住一个词拖到另一个词，松开即把区间设为这串词（替换原区间）。
 // 「音频」页签由 EditorPage 传入（AudioLibrary），用于复用已导入的音源再裁剪。
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Loader2, Mic, Music, PanelRightClose, PanelRightOpen } from 'lucide-react'
@@ -36,6 +37,9 @@ export default function RecognizedTextPanel({ state, audioUrl, selection, onRang
   const [collapsed, setCollapsed] = useState(false)
   const [tab, setTab] = useState<'text' | 'audio'>('text')
   const [cleared, setCleared] = useState(false)
+  // 拖选：from 为按下的词，to 为指针当前所在的词，moved 表示拖到过别的词（否则松开后按普通点词处理）
+  const [drag, setDrag] = useState<{ from: number; to: number; moved: boolean } | null>(null)
+  const swallowClick = useRef(false)
   const listRef = useRef<HTMLDivElement>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
   const stopAt = useRef<number | null>(null)
@@ -123,6 +127,36 @@ export default function RecognizedTextPanel({ state, audioUrl, selection, onRang
     playWord(w) // 区间中间的词、或区间只有这一个词：只试听
   }
 
+  useEffect(() => {
+    if (!drag) return
+    const move = (e: PointerEvent) => {
+      const el = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>('[data-word]')
+      if (!el || !listRef.current?.contains(el)) return
+      const i = Number(el.dataset.word)
+      if (i !== drag.to) setDrag({ from: drag.from, to: i, moved: true })
+    }
+    const up = () => {
+      setDrag(null)
+      if (!drag.moved) return
+      // 松开处若回到按下的词，浏览器仍会补发 click，这里吞掉它
+      swallowClick.current = true
+      setTimeout(() => (swallowClick.current = false))
+      const span = flat.slice(Math.min(drag.from, drag.to), Math.max(drag.from, drag.to) + 1).filter(({ w }) => hasTime(w))
+      if (span.length) commit(span[0].w.start, span[span.length - 1].w.end)
+    }
+    const cancel = () => setDrag(null)
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', cancel)
+    return () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', cancel)
+    }
+  }, [drag])
+
+  const preview = drag?.moved ? [Math.min(drag.from, drag.to), Math.max(drag.from, drag.to)] : null
+
   if (collapsed)
     return (
       <aside className="flex w-10 shrink-0 flex-col items-center border-l border-[#e8e4dc] bg-[#faf9f6] pt-3">
@@ -137,7 +171,7 @@ export default function RecognizedTextPanel({ state, audioUrl, selection, onRang
     ? '点击单词可试听；点击 PDF 线框后，在此处选首词与末词即可设定音频区间'
     : disabled
       ? '该区域使用自定义音源，不能按词设定区间，请在底部音轨拖动手柄裁剪；点击单词可试听'
-      : '点区间外的词扩展首/末，点首/末词取消收缩；成功即写入音频区间'
+      : '拖过多个词可直接选中；点区间外的词扩展首/末，点首/末词收缩；成功即写入音频区间'
 
   return (
     <aside className="flex w-56 shrink-0 flex-col border-l border-[#e8e4dc] bg-[#faf9f6]">
@@ -172,7 +206,7 @@ export default function RecognizedTextPanel({ state, audioUrl, selection, onRang
         </button>
       </div>
       {tab === 'audio' && audioTab}
-      <div ref={listRef} className={`min-h-0 flex-1 overflow-y-auto px-3 pb-3 ${disabled ? 'opacity-60' : ''} ${tab === 'audio' ? 'hidden' : ''}`}>
+      <div ref={listRef} className={`min-h-0 flex-1 overflow-y-auto px-3 pb-3 ${disabled ? 'opacity-60' : ''} ${tab === 'audio' ? 'hidden' : ''} select-none`}>
         {state.status === 'loading' && (
           <div className="flex items-center gap-1 text-xs text-slate-400">
             <Loader2 size={13} className="animate-spin" /> 加载中…
@@ -187,12 +221,16 @@ export default function RecognizedTextPanel({ state, audioUrl, selection, onRang
               {l.words.length ? (
                 l.words.map((w, wi) => {
                   const i = lineStart[li] + wi
-                  const on = hitSet.has(i)
+                  const on = preview ? hasTime(w) && i >= preview[0] && i <= preview[1] : hitSet.has(i)
                   return (
                     <button
                       key={wi}
                       data-word={i}
-                      onClick={() => clickWord(i)}
+                      onPointerDown={(e) => {
+                        if (e.button !== 0 || !selection?.editable || !hasTime(w)) return
+                        setDrag({ from: i, to: i, moved: false })
+                      }}
+                      onClick={() => !swallowClick.current && clickWord(i)}
                       disabled={!hasTime(w)}
                       title={hasTime(w) ? `${w.start.toFixed(2)}–${w.end.toFixed(2)}s` : '无时间'}
                       className={`rounded-md px-1.5 py-0.5 text-[13px] ${on ? 'bg-blue-500 font-bold text-white ring-2 ring-blue-200' : 'text-slate-700 hover:bg-white'} disabled:text-slate-300`}

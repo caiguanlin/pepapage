@@ -470,18 +470,15 @@ export default function EditorPage() {
   const clipSrc = customAudio?.fileName ?? ''
   const canPaste = !!clip && clip.src === clipSrc && (editableRange || !!customAudio)
 
-  // 音轨面板邻居提示：single 共享音轨下其他句子框的有效区间（跳过当前框与被排除/未匹配的框）
+  // 音轨面板顶部标签带：single 共享音轨的识别字幕行，固定在音频时间上，不随区间拖动；行命中句时点击选中该句框
   const cues = useMemo(() => {
-    if (!sel || !data || !editableRange) return undefined
-    const ex = new Set(data.alignment.excludedBoxKeys ?? [])
-    const out: { key: string; start: number; end: number; text: string }[] = []
-    for (const b of boxes) {
-      if (b.kind !== 'sentence' || b.key === sel.key || ex.has(b.key)) continue
-      const er = effectiveRange(data, b)
-      if (er) out.push({ key: b.key, start: er.start, end: er.end, text: b.text })
-    }
-    return out
-  }, [sel, data, editableRange, boxes])
+    if (!editableRange || recognized.status !== 'ready') return undefined
+    const bySentence = new Map<number, string>()
+    for (const b of boxes) if (b.kind === 'sentence' && b.sentenceIndex != null) bySentence.set(b.sentenceIndex, b.key)
+    return recognized.lines
+      .filter((l) => Number.isFinite(l.start) && Number.isFinite(l.end) && l.end > l.start)
+      .map((l) => ({ start: l.start, end: l.end, text: l.text, boxKey: l.sentenceIndex != null ? bySentence.get(l.sentenceIndex) : undefined }))
+  }, [editableRange, recognized, boxes])
 
   const setRange = (start: number, end: number) => {
     if (!sel) return

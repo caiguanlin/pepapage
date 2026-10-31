@@ -179,8 +179,8 @@ export interface TrackPanelProps {
   onRemoveAudio: () => void
   /** 画布点击框时递增；大于上次处理的值就从头试听一次（音频地址未就绪时等就绪后再播） */
   playSignal?: number
-  /** single 共享音轨：其他句子框的区间提示（只读色带），点击选中对应框 */
-  cues?: { key: string; start: number; end: number; text: string }[]
+  /** single 共享音轨：识别字幕行（只读标签带，固定在音频时间上）；boxKey 为该行命中的句子框，点击选中 */
+  cues?: { start: number; end: number; text: string; boxKey?: string }[]
   onPickCue?: (key: string) => void
 }
 
@@ -213,6 +213,7 @@ export default function TrackPanel(p: TrackPanelProps) {
     editable: false,
     excluded: false,
     pickCue: p.onPickCue,
+    cues: p.cues,
   })
   const zoomRef = useRef(zoomV)
   // 蓝色进度层只露出选中区间（见 SEL_CSS）；排除的句子不着色。只读 ref，可直接挂在区域事件上
@@ -245,7 +246,7 @@ export default function TrackPanel(p: TrackPanelProps) {
   const duration = w?.duration ?? 0
   // 显示与拖动用的区间：自定义音源未裁剪时取整段
   const r = p.range ?? (p.wholeFile && duration ? { start: 0, end: duration, manual: false } : null)
-  latest.current = { onRange: p.onRange, r, duration, editable: p.editableRange, excluded: p.excluded, pickCue: p.onPickCue }
+  latest.current = { onRange: p.onRange, r, duration, editable: p.editableRange, excluded: p.excluded, pickCue: p.onPickCue, cues: p.cues }
   zoomRef.current = zoomV
 
   // audio 事件驱动试听遍数与播放状态；卸载时停止播放与下载
@@ -405,9 +406,11 @@ export default function TrackPanel(p: TrackPanelProps) {
       // 拖动结束插件会重新错开重叠标签（10ms 后写 marginTop），之后复位保持单行标签带
       setTimeout(() => regions.getRegions().forEach((x) => x.content && (x.content.style.marginTop = '0')), 30)
     })
-    // 点击邻居提示色带选中对应框
+    // 点击字幕行标签选中该行命中的句子框
     regions.on('region-clicked', (rg) => {
-      if (rg.id.startsWith('cue:')) latest.current.pickCue?.(rg.id.slice(4))
+      if (!rg.id.startsWith('cue:')) return
+      const key = latest.current.cues?.[Number(rg.id.slice(4))]?.boxKey
+      if (key) latest.current.pickCue?.(key)
     })
     return () => {
       offPan()
@@ -458,7 +461,8 @@ export default function TrackPanel(p: TrackPanelProps) {
       return
     }
     if (!rg) {
-      const nr = regions.addRegion({ id: 'sel-range', start: r.start, end: r.end, drag: true, resize: true, minLength: 0.01, color: 'rgba(59,130,246,.08)', content: p.title })
+      // 不带文字标签：顶部标签带是音频本身的字幕行，拖动区间时文字不跟着走
+      const nr = regions.addRegion({ id: 'sel-range', start: r.start, end: r.end, drag: true, resize: true, minLength: 0.01, color: 'rgba(59,130,246,.08)' })
       rangeRegionRef.current = nr
       styleRegion(nr, 'range', p.excluded, p.title)
       // 拖动中（update）与 setOptions 回弹/同步（render）都让蓝色跟着区间走
@@ -473,17 +477,19 @@ export default function TrackPanel(p: TrackPanelProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, r?.start, r?.end, p.excluded, p.title])
 
-  // 邻居提示色带：只读、点击选中；以签名为依赖避免每次渲染重建
-  const cueSig = p.cues?.map((c) => `${c.key}:${c.start.toFixed(3)}-${c.end.toFixed(3)}:${c.text}`).join('|') ?? ''
+  // 字幕行标签带：只读、命中句的可点击选中；以签名为依赖避免每次渲染重建
+  const cueSig = p.cues?.map((c) => `${c.start.toFixed(3)}-${c.end.toFixed(3)}:${c.boxKey ?? ''}:${c.text}`).join('|') ?? ''
   useEffect(() => {
     const regions = regionsRef.current
     if (!regions || !ready) return
     const created: Region[] = []
-    for (const c of p.cues ?? []) {
-      const rg = regions.addRegion({ id: `cue:${c.key}`, start: c.start, end: c.end, drag: false, resize: false, color: 'rgba(241,245,249,.7)', content: c.text })
+    p.cues?.forEach((c, i) => {
+      const rg = regions.addRegion({ id: `cue:${i}`, start: c.start, end: c.end, drag: false, resize: false, color: 'rgba(241,245,249,.7)', content: c.text })
       styleRegion(rg, 'cue', false, c.text)
+      // 未命中句的行不可点
+      if (rg.element) rg.element.style.cursor = c.boxKey ? 'pointer' : 'default'
       created.push(rg)
-    }
+    })
     return () => created.forEach((rg) => rg.remove())
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, cueSig])

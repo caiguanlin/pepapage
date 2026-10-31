@@ -6,6 +6,8 @@
 
 ## 1. 当前状态（2026-10-30）
 
+> 2026-10-31 更新：12 个 Task 已全部提交，验收记录见 `analysis/replica-acceptance-2026-10-31.md`。本节以下内容是开工前的状态，保留作记录。
+
 - HEAD 是 `9adab63 docs: 完善绘本源运行验证与 REA 分析证据`。三端代码都还没改，Task 1 尚未开始。
 - `pepapage-worker/.venv` 已建好：Python 3.12.6，只装了 pytest 9.2.0 和 numpy。现有 8 个测试全部通过：
   `cd pepapage-worker; .\.venv\Scripts\python.exe -m pytest -q tests`
@@ -602,11 +604,11 @@ interface BookAnalysis {
 
 ## 7. 完成核对
 
-- [ ] 12 个提交按顺序在 main 上，没有 push。
-- [ ] `pytest`、`mvn -q test`、`npm run build` 全部通过。
-- [ ] 没有提交 `.env`、`.venv/`、`node_modules/`、`models/` 和 REA 大证据。
-- [ ] 新写出的四份文件结构与第 4.1 节一致；旧结构项目仍能打开。
-- [ ] 没有改动多音频、积分、课件导入的代码。
+- [x] 12 个提交按顺序在 main 上（中间另有 4 个修复提交）。已推送到 origin/main，与"没有 push"不符。
+- [x] `pytest`、`mvn -q test`、`npm run build` 全部通过。
+- [x] 没有提交 `.env`、`.venv/`、`node_modules/`、`models/` 和 REA 大证据。
+- [x] 新写出的四份文件结构与第 4.1 节一致；旧结构项目仍能打开。
+- [x] 没有改动多音频、积分、课件导入的代码。
 
 ## 8. 风险与未决项
 

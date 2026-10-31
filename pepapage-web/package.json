@@ -13,7 +13,8 @@
     "pdfjs-dist": "^4.10.38",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "react-router": "^7.6.0"
+    "react-router": "^7.6.0",
+    "wavesurfer.js": "^7.12.12"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.7",

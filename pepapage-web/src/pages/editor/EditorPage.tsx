@@ -470,6 +470,19 @@ export default function EditorPage() {
   const clipSrc = customAudio?.fileName ?? ''
   const canPaste = !!clip && clip.src === clipSrc && (editableRange || !!customAudio)
 
+  // 音轨面板邻居提示：single 共享音轨下其他句子框的有效区间（跳过当前框与被排除/未匹配的框）
+  const cues = useMemo(() => {
+    if (!sel || !data || !editableRange) return undefined
+    const ex = new Set(data.alignment.excludedBoxKeys ?? [])
+    const out: { key: string; start: number; end: number; text: string }[] = []
+    for (const b of boxes) {
+      if (b.kind !== 'sentence' || b.key === sel.key || ex.has(b.key)) continue
+      const er = effectiveRange(data, b)
+      if (er) out.push({ key: b.key, start: er.start, end: er.end, text: b.text })
+    }
+    return out
+  }, [sel, data, editableRange, boxes])
+
   const setRange = (start: number, end: number) => {
     if (!sel) return
     const s = Math.round(start * 1000) / 1000
@@ -918,6 +931,11 @@ export default function EditorPage() {
                 onUploadAudio={uploadAudio}
                 onRemoveAudio={removeAudio}
                 playSignal={playReq && playReq.key === sel.key ? playReq.n : 0}
+                cues={cues}
+                onPickCue={(key) => {
+                  const b = boxes.find((x) => x.key === key)
+                  if (b) scrollToBox(b)
+                }}
               />
             )}
           </main>

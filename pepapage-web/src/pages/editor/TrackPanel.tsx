@@ -12,6 +12,17 @@ const MAX_PEAK_SAMPLES = 3_000_000
 // 缩放档位记忆：滑杆 10–400 线性映射到「整段适配容器宽」–「400px/s」
 const ZOOM_KEY = 'editor.trackZoom'
 
+// 蓝色只画在选中区间内：wavesurfer 默认把 0→光标涂成 progressColor，光标停在区间末尾时像选区向左溢出。
+// 注入 shadow DOM：灰色底层不再按进度裁剪；蓝色进度层放开 overflow，按 --sel-l/--sel-r（占总时长比例）裁剪。
+// .progress 的宽度仍由 wavesurfer 按进度设置，缩放时它靠这个宽度保持光标位置，所以不覆盖 width
+const SEL_CSS = `
+.wrapper { container-type: inline-size; }
+.canvases { clip-path: none !important; }
+.progress {
+  overflow: visible !important;
+  clip-path: polygon(calc(var(--sel-l, 0) * 100cqw) 0, calc(var(--sel-r, 0) * 100cqw) 0, calc(var(--sel-r, 0) * 100cqw) 100%, calc(var(--sel-l, 0) * 100cqw) 100%) !important;
+}`
+
 const peakCache = new Map<string, Promise<{ peaks: Float32Array; duration: number }>>()
 
 export function loadPeaks(url: string) {
@@ -161,9 +172,20 @@ export default function TrackPanel(p: TrackPanelProps) {
     r: null as { start: number; end: number; manual: boolean } | null,
     duration: 0,
     editable: false,
+    excluded: false,
     pickCue: p.onPickCue,
   })
   const zoomRef = useRef(zoomV)
+  // 蓝色进度层只露出选中区间（见 SEL_CSS）；排除的句子不着色。只读 ref，可直接挂在区域事件上
+  const paintSel = () => {
+    const el = wsRef.current?.getWrapper()
+    if (!el) return
+    const rg = rangeRegionRef.current
+    const { duration: d, excluded } = latest.current
+    const on = !!rg && d > 0 && !excluded
+    el.style.setProperty('--sel-l', on ? String(rg.start / d) : '0')
+    el.style.setProperty('--sel-r', on ? String(rg.end / d) : '0')
+  }
 
   useEffect(() => {
     setWave(null)
@@ -184,7 +206,7 @@ export default function TrackPanel(p: TrackPanelProps) {
   const duration = w?.duration ?? 0
   // 显示与拖动用的区间：自定义音源未裁剪时取整段
   const r = p.range ?? (p.wholeFile && duration ? { start: 0, end: duration, manual: false } : null)
-  latest.current = { onRange: p.onRange, r, duration, editable: p.editableRange, pickCue: p.onPickCue }
+  latest.current = { onRange: p.onRange, r, duration, editable: p.editableRange, excluded: p.excluded, pickCue: p.onPickCue }
   zoomRef.current = zoomV
 
   // audio 事件驱动试听遍数与播放状态；卸载时停止播放与下载
@@ -293,6 +315,8 @@ export default function TrackPanel(p: TrackPanelProps) {
       duration: w.duration,
     })
     wsRef.current = ws
+    const root = ws.getWrapper().getRootNode()
+    if (root instanceof ShadowRoot) root.appendChild(Object.assign(document.createElement('style'), { textContent: SEL_CSS }))
     regionsRef.current = ws.registerPlugin(regions)
     ws.registerPlugin(
       HoverPlugin.create({
@@ -306,7 +330,8 @@ export default function TrackPanel(p: TrackPanelProps) {
       }),
     )
     ws.registerPlugin(
-      MinimapPlugin.create({ height: 16, overlayColor: 'rgba(100,116,139,.25)', waveColor: '#cbd5e1', progressColor: '#38bdf8', cursorColor: 'rgb(244,63,94)', cursorWidth: 1 }),
+      // 小图同样不按播放进度着色，只留光标与视口框
+      MinimapPlugin.create({ height: 16, overlayColor: 'rgba(100,116,139,.25)', waveColor: '#cbd5e1', progressColor: '#cbd5e1', cursorColor: 'rgb(244,63,94)', cursorWidth: 1 }),
     )
     ws.once('ready', () => setReady(true))
     ws.on('timeupdate', (t) => setTime(t))
@@ -377,16 +402,21 @@ export default function TrackPanel(p: TrackPanelProps) {
         rg.remove()
         rangeRegionRef.current = null
       }
+      paintSel()
       return
     }
     if (!rg) {
       const nr = regions.addRegion({ id: 'sel-range', start: r.start, end: r.end, drag: true, resize: true, minLength: 0.01, color: 'rgba(59,130,246,.08)', content: p.title })
       rangeRegionRef.current = nr
       styleRegion(nr, 'range', p.excluded, p.title)
+      // 拖动中（update）与 setOptions 回弹/同步（render）都让蓝色跟着区间走
+      nr.on('update', paintSel)
+      nr.on('render', paintSel)
     } else {
       styleRegion(rg, 'range', p.excluded, p.title)
       if (Math.abs(rg.start - r.start) > 0.002 || Math.abs(rg.end - r.end) > 0.002) rg.setOptions({ start: r.start, end: r.end })
     }
+    paintSel()
     // r 可能每次渲染是新对象，按起止值比较
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, r?.start, r?.end, p.excluded, p.title])

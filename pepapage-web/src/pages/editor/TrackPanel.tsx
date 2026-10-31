@@ -232,6 +232,9 @@ export default function TrackPanel(p: TrackPanelProps) {
     setWaveErr(null)
     setReady(false)
     setTime(0)
+    // 同一个框换音源时面板不重挂载，audio 元素沿用：先停掉上一个音源的播放与遍数计划
+    audioRef.current!.pause()
+    playPlan.current = { end: null, left: 0, start: 0 }
     if (!p.audioUrl) return
     let off = false
     loadPeaks(p.audioUrl)
@@ -343,6 +346,9 @@ export default function TrackPanel(p: TrackPanelProps) {
     const ws = WaveSurfer.create({
       container: box,
       media: audioRef.current!,
+      // 必须显式传 url：不传时 wavesurfer 取 media 现有的 src，同一个框换音源后那还是上一个音源，
+      // 时长按旧 media.duration 算，区间和字幕标签被压到最左、光标停在旧位置。有 peaks 时不会重新下载
+      url: w.url,
       height: 123,
       waveColor: '#cbd5e1',
       progressColor: '#38bdf8',

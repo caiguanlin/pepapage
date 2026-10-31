@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 from worker import asr, pipeline
@@ -87,12 +88,19 @@ def test_transcribe_groups_words_by_kept_line(monkeypatch):
             SimpleNamespace(start=1.5, end=2.9, text="Butterfly flies",
                             words=[word(" Butterfly", 1.5, 2.0), word(" ", 2.0, 2.0), word("flies", 2.0, 2.9)])]
 
+    wave_data = np.zeros(16000, dtype=np.float32)
+    received = []
+
     class FakeModel:
-        def transcribe(self, path, **kw):
+        def transcribe(self, data, **kw):
+            received.append(data)
             return iter(segs), SimpleNamespace(duration=3.0, language="en")
 
     monkeypatch.setattr(asr, "_model", lambda: FakeModel())
+    monkeypatch.setattr(asr, "_load_audio", lambda path: wave_data)
     res = asr.transcribe("x.wav")
+    # 交给模型的是解码好的波形而不是路径：路径会走 faster-whisper 自带的解码，与 PyAV 19 不兼容
+    assert len(received) == 1 and received[0] is wave_data
     assert res["language"] == "en"
     assert res["segments"] == [{"start": 0.94, "end": 1.25, "text": "Hello"},
                                {"start": 1.5, "end": 2.9, "text": "Butterfly flies"}]
@@ -100,6 +108,17 @@ def test_transcribe_groups_words_by_kept_line(monkeypatch):
     assert res["words"]["0"] == [{"text": "Hello", "start": 0.94, "end": 1.25}]
     assert [w["text"] for w in res["words"]["1"]] == ["Butterfly", "flies"]
     assert all("probability" not in w for ws in res["words"].values() for w in ws)
+
+
+def test_load_audio_decodes_wav_to_float_waveform(tmp_path):
+    pytest.importorskip("av")
+    from worker import audio as audio_mod
+
+    wav = tmp_path / "a.wav"
+    audio_mod.write_wav(wav, np.array([0, 16384, -16384, 8192] * 400, dtype=np.int16))
+    data = asr._load_audio(wav)
+    assert data.dtype == np.float32 and len(data) == 1600
+    assert np.allclose(data[:4], [0, 0.5, -0.5, 0.25])
 
 
 def _book(texts):

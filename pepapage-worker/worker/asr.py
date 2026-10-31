@@ -8,6 +8,10 @@ import os
 from pathlib import Path
 from typing import Any, Callable
 
+import numpy as np
+
+from . import audio as audio_mod
+
 _MODELS: dict[str, Any] = {}
 
 
@@ -25,6 +29,15 @@ def _model():
     return _MODELS[name]
 
 
+def _load_audio(path: Path | str) -> np.ndarray:
+    """解码为 16k 单声道 float32 波形。
+
+    不把路径直接交给 faster-whisper：它自带的 decode_audio 调用 av.open(..., metadata_errors=...)，
+    新版 PyAV（本机 19.0.2）已不接受这个参数，会报 TypeError。这里用音频转换步骤同一个解码器。
+    """
+    return audio_mod.decode_to_mono(path).astype(np.float32) / 32768.0
+
+
 def transcribe(wav_path: Path | str, duration: float | None = None,
                progress: Callable[[int], None] | None = None) -> dict[str, Any]:
     """返回 {segments:[{start,end,text}], words:{"<行号>":[{text,start,end}]}, language}。
@@ -33,7 +46,7 @@ def transcribe(wav_path: Path | str, duration: float | None = None,
     文本为空的 segment 连同它的词一起丢弃。
     """
     lang = os.getenv("WHISPER_LANGUAGE") or None
-    segments_iter, info = _model().transcribe(str(wav_path), word_timestamps=True, language=lang,
+    segments_iter, info = _model().transcribe(_load_audio(wav_path), word_timestamps=True, language=lang,
                                               vad_filter=False, beam_size=5)
     total = duration or getattr(info, "duration", None) or 0
     segments: list[dict[str, Any]] = []

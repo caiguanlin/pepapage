@@ -1,10 +1,8 @@
-// 停靠在主预览底部的音轨面板：波形（第一声道 1000 峰值）、起止时间、上句尾/下句头、复制粘贴、跳过、入口码、遍数、试听、更换音源/重置。
+// 停靠在主预览底部的音轨面板：波形（第一声道 1000 峰值）、试听、入口码、更换音源/重置。
 import { useEffect, useRef, useState } from 'react'
-import { ChevronDown, ChevronUp, Copy, ClipboardPaste, Pause, Play, RotateCcw, Upload, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, Pause, Play, RotateCcw, Upload, X } from 'lucide-react'
 
 const PEAKS = 1000
-const NUDGE = 0.02
-const MIN_VIEW = 0.4
 
 const peakCache = new Map<string, Promise<{ peaks: Float32Array; duration: number }>>()
 
@@ -47,22 +45,16 @@ export interface TrackPanelProps {
   editableRange: boolean
   /** 自定义音源：range 为 null 表示整段，手柄落在 0 与时长处，拖动即裁剪 */
   wholeFile?: boolean
-  prevEnd?: number | null
-  nextStart?: number | null
   excluded: boolean
   isEntry: boolean
+  /** 试听时的播放遍数（取已保存的遍数） */
   repeat: number
   hasCustomAudio: boolean
   customAudioName?: string
   busy?: boolean
   onRange: (start: number, end: number) => void
   onResetRange: () => void
-  onCopy: () => void
-  onPaste: () => void
-  canPaste: boolean
-  onToggleExclude: () => void
   onToggleEntry: () => void
-  onRepeat: (n: number) => void
   onUploadAudio: (f: File) => void
   onRemoveAudio: () => void
   /** 画布点击框时递增；大于上次处理的值就从头试听一次（音频地址未就绪时等就绪后再播） */
@@ -75,13 +67,10 @@ export default function TrackPanel(p: TrackPanelProps) {
   const [waveErr, setWaveErr] = useState<string | null>(null)
   const [playing, setPlaying] = useState(false)
   const [cursor, setCursor] = useState<number | null>(null)
-  const [view, setView] = useState<{ a: number; b: number } | null>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const playPlan = useRef<{ end: number | null; left: number; start: number }>({ end: null, left: 0, start: 0 })
   const fileRef = useRef<HTMLInputElement>(null)
-  const [startText, setStartText] = useState('')
-  const [endText, setEndText] = useState('')
 
   useEffect(() => {
     setWave(null)
@@ -100,26 +89,10 @@ export default function TrackPanel(p: TrackPanelProps) {
   // 显示与拖动用的区间：自定义音源未裁剪时取整段
   const r = p.range ?? (p.wholeFile && duration ? { start: 0, end: duration, manual: false } : null)
 
-  // 选中范围变化时聚焦视窗
-  useEffect(() => {
-    setStartText(r ? r.start.toFixed(3) : '')
-    setEndText(r ? r.end.toFixed(3) : '')
-  }, [r?.start, r?.end])
-
-  const focusView = () => {
-    if (!duration) return
-    if (r && p.editableRange) {
-      const len = Math.max(MIN_VIEW, r.end - r.start)
-      const pad = len * 0.5
-      setView({ a: Math.max(0, r.start - pad), b: Math.min(duration, r.end + pad) })
-    } else setView({ a: 0, b: duration })
-  }
-  useEffect(focusView, [duration, r?.start, r?.end, p.audioUrl])
-
-  // 绘制波形；面板收起再展开时 canvas 会重新挂载，collapsed 变化也要重画
+  // 绘制波形（始终显示整段音频，不缩放）；面板收起再展开时 canvas 会重新挂载，collapsed 变化也要重画
   useEffect(() => {
     const c = canvasRef.current
-    if (!c || !wave || !view) return
+    if (!c || !wave) return
     const w = c.clientWidth
     const h = c.clientHeight
     const dpr = window.devicePixelRatio || 1
@@ -128,15 +101,14 @@ export default function TrackPanel(p: TrackPanelProps) {
     const ctx = c.getContext('2d')!
     ctx.scale(dpr, dpr)
     ctx.clearRect(0, 0, w, h)
-    const toX = (t: number) => ((t - view.a) / (view.b - view.a)) * w
+    const toX = (t: number) => (t / wave.duration) * w
     if (r && p.editableRange) {
       ctx.fillStyle = p.excluded ? 'rgba(148,163,184,.25)' : 'rgba(99,102,241,.18)'
       ctx.fillRect(toX(r.start), 0, toX(r.end) - toX(r.start), h)
     }
     ctx.fillStyle = '#64748b'
     for (let x = 0; x < w; x++) {
-      const t = view.a + (x / w) * (view.b - view.a)
-      const i = Math.min(PEAKS - 1, Math.floor((t / wave.duration) * PEAKS))
+      const i = Math.min(PEAKS - 1, Math.floor((x / w) * PEAKS))
       const v = wave.peaks[i] * (h / 2 - 2)
       ctx.fillRect(x, h / 2 - v, 1, Math.max(1, v * 2))
     }
@@ -151,27 +123,27 @@ export default function TrackPanel(p: TrackPanelProps) {
     }
     // r 每次渲染可能是新对象，按起止值比较
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wave, view, r?.start, r?.end, p.editableRange, p.excluded, cursor, collapsed])
+  }, [wave, r?.start, r?.end, p.editableRange, p.excluded, cursor, collapsed])
 
   const timeAt = (clientX: number) => {
     const c = canvasRef.current!
     const r = c.getBoundingClientRect()
-    return view ? view.a + ((clientX - r.left) / r.width) * (view.b - view.a) : 0
+    return ((clientX - r.left) / r.width) * duration
   }
 
-  const dragRef = useRef<{ mode: 'start' | 'end' | 'pan' | 'seek'; x0: number; view0: { a: number; b: number } } | null>(null)
+  const dragRef = useRef<{ mode: 'start' | 'end' | 'seek'; x0: number } | null>(null)
   const onDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!view || !wave) return
+    if (!wave) return
     const c = e.currentTarget
     c.setPointerCapture(e.pointerId)
     const t = timeAt(e.clientX)
-    const tol = ((view.b - view.a) / c.clientWidth) * 6
-    let mode: 'start' | 'end' | 'pan' | 'seek' = e.shiftKey || e.button === 1 ? 'pan' : 'seek'
+    const tol = (duration / c.clientWidth) * 6
+    let mode: 'start' | 'end' | 'seek' = 'seek'
     if (r && p.editableRange) {
       if (Math.abs(t - r.start) < tol) mode = 'start'
       else if (Math.abs(t - r.end) < tol) mode = 'end'
     }
-    dragRef.current = { mode, x0: e.clientX, view0: view }
+    dragRef.current = { mode, x0: e.clientX }
   }
   const onMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const d = dragRef.current
@@ -179,26 +151,11 @@ export default function TrackPanel(p: TrackPanelProps) {
     const t = Math.max(0, Math.min(duration, timeAt(e.clientX)))
     if (d.mode === 'start') p.onRange(Math.min(t, r.end - 0.01), r.end)
     else if (d.mode === 'end') p.onRange(r.start, Math.max(t, r.start + 0.01))
-    else if (d.mode === 'pan') {
-      const dt = ((d.x0 - e.clientX) / e.currentTarget.clientWidth) * (d.view0.b - d.view0.a)
-      const len = d.view0.b - d.view0.a
-      const a = Math.max(0, Math.min(duration - len, d.view0.a + dt))
-      setView({ a, b: a + len })
-    }
   }
   const onUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const d = dragRef.current
     dragRef.current = null
     if (d?.mode === 'seek' && Math.abs(e.clientX - d.x0) < 3) playFrom(timeAt(e.clientX), null, 1)
-  }
-  const onWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
-    if (!view || !duration) return
-    const t = timeAt(e.clientX)
-    const k = e.deltaY > 0 ? 1.25 : 0.8
-    let len = Math.min(duration, Math.max(MIN_VIEW, (view.b - view.a) * k))
-    let a = t - ((t - view.a) / (view.b - view.a)) * len
-    a = Math.max(0, Math.min(duration - len, a))
-    setView({ a, b: a + len })
   }
 
   const playFrom = (start: number, end: number | null, times: number) => {
@@ -260,28 +217,6 @@ export default function TrackPanel(p: TrackPanelProps) {
     }
   }
 
-  const commit = (which: 'start' | 'end') => {
-    if (!r) return
-    const text = which === 'start' ? startText : endText
-    // 输入框显示的是 toFixed(3)，未改动就失焦不写入（否则整段音源会被按舍入后的时长裁剪）
-    if (text === (which === 'start' ? r.start : r.end).toFixed(3)) return
-    const v = Number(text)
-    if (!Number.isFinite(v)) return
-    const max = duration || Infinity
-    let s = which === 'start' ? v : r.start
-    let e = which === 'end' ? v : r.end
-    s = Math.max(0, Math.min(max, s))
-    e = Math.max(0, Math.min(max, e))
-    if (e <= s) return
-    p.onRange(s, e)
-  }
-  const nudge = (which: 'start' | 'end', d: number) => {
-    if (!r) return
-    const max = duration || Infinity
-    if (which === 'start') p.onRange(Math.max(0, Math.min(r.end - 0.01, r.start + d)), r.end)
-    else p.onRange(r.start, Math.min(max, Math.max(r.start + 0.01, r.end + d)))
-  }
-
   const btn = 'flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-xs hover:bg-slate-50 disabled:opacity-40'
 
   return (
@@ -296,20 +231,11 @@ export default function TrackPanel(p: TrackPanelProps) {
         <button className={btn} onClick={audition} disabled={!p.audioUrl}>
           {playing ? <Pause size={13} /> : <Play size={13} />} {playing ? '播放中' : '试听'}
         </button>
-        <label className="flex items-center gap-1 text-xs text-slate-600">
-          遍数
-          <input
-            type="number"
-            min={1}
-            max={9}
-            value={p.repeat}
-            onChange={(e) => p.onRepeat(Number(e.target.value))}
-            className="w-12 rounded border border-slate-200 px-1 py-0.5"
-          />
-        </label>
-        <button className={`${btn} ${p.excluded ? 'border-slate-400 bg-slate-100' : ''}`} onClick={p.onToggleExclude}>
-          {p.excluded ? '已跳过' : '不赋码'}
-        </button>
+        {p.editableRange && (
+          <button className={btn} onClick={p.onResetRange} disabled={!p.range?.manual} title={p.wholeFile ? '取消裁剪，整段播放' : undefined}>
+            <RotateCcw size={13} /> 重置
+          </button>
+        )}
         <button className={`${btn} ${p.isEntry ? 'border-amber-400 bg-amber-50 text-amber-700' : ''}`} onClick={p.onToggleEntry}>
           {p.isEntry ? '已设为入口码' : '作为入口码'}
         </button>
@@ -335,67 +261,7 @@ export default function TrackPanel(p: TrackPanelProps) {
       </div>
       {!collapsed && (
         <div className="space-y-2 px-3 pb-3">
-          {p.editableRange && (
-            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
-              <span>开始</span>
-              <button className={btn} onClick={() => nudge('start', -NUDGE)}>-</button>
-              <input
-                type="number"
-                step={0.01}
-                min={0}
-                value={startText}
-                onChange={(e) => setStartText(e.target.value)}
-                onBlur={() => commit('start')}
-                onKeyDown={(e) => e.key === 'Enter' && commit('start')}
-                className="w-24 rounded border border-slate-200 px-1 py-0.5"
-                disabled={!r}
-              />
-              <button className={btn} onClick={() => nudge('start', NUDGE)}>+</button>
-              {!p.wholeFile && (
-                <button
-                  className={btn}
-                  disabled={p.prevEnd == null || !p.range}
-                  onClick={() => p.range && p.prevEnd != null && p.prevEnd < p.range.end && p.onRange(p.prevEnd, p.range.end)}
-                >
-                  上句尾
-                </button>
-              )}
-              <span className="ml-3">结束</span>
-              <button className={btn} onClick={() => nudge('end', -NUDGE)}>-</button>
-              <input
-                type="number"
-                step={0.01}
-                min={0}
-                value={endText}
-                onChange={(e) => setEndText(e.target.value)}
-                onBlur={() => commit('end')}
-                onKeyDown={(e) => e.key === 'Enter' && commit('end')}
-                className="w-24 rounded border border-slate-200 px-1 py-0.5"
-                disabled={!r}
-              />
-              <button className={btn} onClick={() => nudge('end', NUDGE)}>+</button>
-              {!p.wholeFile && (
-                <button
-                  className={btn}
-                  disabled={p.nextStart == null || !p.range}
-                  onClick={() => p.range && p.nextStart != null && p.nextStart > p.range.start && p.onRange(p.range.start, p.nextStart)}
-                >
-                  下句头
-                </button>
-              )}
-              <button className={btn} onClick={p.onCopy} disabled={!r}>
-                <Copy size={13} /> 复制
-              </button>
-              <button className={btn} onClick={p.onPaste} disabled={!p.canPaste}>
-                <ClipboardPaste size={13} /> 粘贴
-              </button>
-              <button className={btn} onClick={p.onResetRange} disabled={!p.range?.manual} title={p.wholeFile ? '取消裁剪，整段播放' : undefined}>
-                <RotateCcw size={13} /> 重置
-              </button>
-              <button className={btn} onClick={focusView}>聚焦选择</button>
-              {!r && !p.wholeFile && <span className="text-amber-600">该句未匹配到音频，可在波形上拖动设置区间后保存</span>}
-            </div>
-          )}
+          {p.editableRange && !r && !p.wholeFile && <div className="text-xs text-amber-600">该句未匹配到音频，可在波形上拖动设置区间后保存</div>}
           <div className="relative h-20 rounded-md border border-slate-200 bg-slate-50">
             {p.audioUrl ? (
               wave ? (
@@ -405,7 +271,6 @@ export default function TrackPanel(p: TrackPanelProps) {
                   onPointerDown={onDown}
                   onPointerMove={onMove}
                   onPointerUp={onUp}
-                  onWheel={onWheel}
                   onDoubleClick={(e) => {
                     // 双击空白：未有区间时以点击处建立 1 秒区间
                     if (p.editableRange && !r) {
@@ -424,7 +289,7 @@ export default function TrackPanel(p: TrackPanelProps) {
             )}
           </div>
           <div className="text-[11px] text-slate-400">
-            点击波形播放；拖动蓝色手柄调整起止；滚轮缩放；Shift+拖动平移。Ctrl+C / Ctrl+V 复制粘贴区间。
+            点击波形播放；拖动蓝色手柄调整起止。Ctrl+C / Ctrl+V 复制粘贴区间。
             {p.customAudioName && (
               <span className="ml-2 text-indigo-600">
                 自定义音源：{p.customAudioName}

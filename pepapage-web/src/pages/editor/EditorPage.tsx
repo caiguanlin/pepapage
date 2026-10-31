@@ -19,7 +19,6 @@ import {
   OCR_PX_PER_MM,
   buildBoxes,
   clampBox,
-  clampRepeat,
   customCrop,
   effectiveRange,
   loadEditorData,
@@ -228,7 +227,6 @@ export default function EditorPage() {
     return m
   }, [boxes])
   const sel = boxes.find((b) => b.key === selKey) ?? null
-  const sentences = useMemo(() => boxes.filter((b) => b.kind === 'sentence').sort((a, b) => a.sentenceIndex! - b.sentenceIndex!), [boxes])
   // 与 worker 导出相同的区域规划与码值分配，供点阵预览和「显示码值」使用
   const plan = useMemo(() => (data ? planCodes(mode, data) : null), [data, mode])
 
@@ -294,9 +292,10 @@ export default function EditorPage() {
         setSelKey(null)
         return
       }
-      // 识别句框、多音频框不删数据，改为跳过赋码并从画布隐藏；保留选中，音轨面板显示「已跳过」可直接恢复（同原版）
+      // 识别句框、多音频框不删数据，改为跳过赋码并从画布隐藏
       if (data?.alignment.excludedBoxKeys?.includes(b.key)) return
       update((d) => ({ ...d, alignment: { ...d.alignment, excludedBoxKeys: [...(d.alignment.excludedBoxKeys ?? []), b.key] } }))
+      setSelKey(null)
     },
     [data, id, update],
   )
@@ -471,16 +470,6 @@ export default function EditorPage() {
   const clipSrc = customAudio?.fileName ?? ''
   const canPaste = !!clip && clip.src === clipSrc && (editableRange || !!customAudio)
 
-  const neighbor = (dir: -1 | 1) => {
-    if (!sel || sel.kind !== 'sentence' || !data) return null
-    const i = sentences.findIndex((b) => b.key === sel.key)
-    for (let j = i + dir; j >= 0 && j < sentences.length; j += dir) {
-      const r = effectiveRange(data, sentences[j])
-      if (r) return dir < 0 ? r.end : r.start
-    }
-    return null
-  }
-
   const setRange = (start: number, end: number) => {
     if (!sel) return
     const s = Math.round(start * 1000) / 1000
@@ -530,21 +519,6 @@ export default function EditorPage() {
       return { ...d, alignment: { ...d.alignment, manualRanges: m } }
     })
   }
-  const setRepeat = (n: number) => {
-    if (!sel) return
-    const v = clampRepeat(n)
-    update((d) => {
-      const m = { ...(d.alignment.repeatCounts ?? {}) }
-      if (v === 1) delete m[sel.key]
-      else m[sel.key] = v
-      return { ...d, alignment: { ...d.alignment, repeatCounts: m } }
-    })
-  }
-  const toggleExclude = (key: string) =>
-    update((d) => {
-      const ex = d.alignment.excludedBoxKeys ?? []
-      return { ...d, alignment: { ...d.alignment, excludedBoxKeys: ex.includes(key) ? ex.filter((k) => k !== key) : [...ex, key] } }
-    })
   const toggleEntry = (key: string) => update((d) => ({ ...d, aux: { ...d.aux, entryBoxKey: d.aux.entryBoxKey === key ? null : key } }))
 
   const persistCustomAudio = async (next: EditorData['customAudio']) => {
@@ -780,7 +754,7 @@ export default function EditorPage() {
                         <span className="truncate" title={e.originalName}>{e.originalName}</span>
                       </div>
                       <div className="mt-0.5 text-[11px] text-slate-400">
-                        {pages.length ? `已放置：第 ${[...new Set(pages)].sort((a, b) => a - b).join('、')} 页` : skipped ? '已跳过（点击后可在音轨面板恢复）' : '未放置'}
+                        {pages.length ? `已放置：第 ${[...new Set(pages)].sort((a, b) => a - b).join('、')} 页` : skipped ? '已跳过（重新拖到页面上可恢复）' : '未放置'}
                       </div>
                     </div>
                   )
@@ -932,8 +906,6 @@ export default function EditorPage() {
                 range={range}
                 editableRange={editableRange || !!customAudio}
                 wholeFile={!!customAudio}
-                prevEnd={neighbor(-1)}
-                nextStart={neighbor(1)}
                 excluded={excluded.has(sel.key)}
                 isEntry={data.aux.entryBoxKey === sel.key}
                 repeat={data.alignment.repeatCounts?.[sel.key] ?? 1}
@@ -942,12 +914,7 @@ export default function EditorPage() {
                 busy={busy}
                 onRange={setRange}
                 onResetRange={resetRange}
-                onCopy={() => range && setClip({ start: range.start, end: range.end, src: clipSrc })}
-                onPaste={() => clip && canPaste && setRange(clip.start, clip.end)}
-                canPaste={canPaste}
-                onToggleExclude={() => toggleExclude(sel.key)}
                 onToggleEntry={() => toggleEntry(sel.key)}
-                onRepeat={setRepeat}
                 onUploadAudio={uploadAudio}
                 onRemoveAudio={removeAudio}
                 playSignal={playReq && playReq.key === sel.key ? playReq.n : 0}

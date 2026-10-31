@@ -10,6 +10,7 @@ import copy
 import io
 import json
 import logging
+import math
 import zipfile
 from pathlib import Path
 from typing import Any, Callable
@@ -38,6 +39,17 @@ class ExportError(RuntimeError):
     pass
 
 
+def _clamp01(v: Any) -> float:
+    """比例值归一化：非法（非数字/NaN/inf）取 0，合法值夹到 [0,1]。"""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return 0.0
+    if not math.isfinite(f):
+        return 0.0
+    return max(0.0, min(1.0, f))
+
+
 def normalize_aux(raw: dict[str, Any] | None) -> dict[str, Any]:
     aux = copy.deepcopy(AUX_DEFAULTS)
     if isinstance(raw, dict):
@@ -60,6 +72,13 @@ def normalize_aux(raw: dict[str, Any] | None) -> dict[str, Any]:
         aux["entrySizeMm"] = max(12.0, min(40.0, float(aux["entrySizeMm"])))
     except (TypeError, ValueError) as e:
         raise ExportError(f"辅码设置无效：{e}") from e
+    # 入口码贴纸自定义位置：前端存贴纸外框 {x,y,w,h}（相对源页宽高的比例 0–1）。
+    # 统一转成 float 并夹到 [0,1]（非法值取 0）；不是 dict 一律视为未设置。
+    er = aux.get("entryRect")
+    if isinstance(er, dict):
+        aux["entryRect"] = {k: _clamp01(er.get(k)) for k in ("x", "y", "w", "h")}
+    else:
+        aux["entryRect"] = None
     return aux
 
 
@@ -338,14 +357,36 @@ def _layout(src_page: Any, paper_pt: tuple[float, float]) -> tuple[float, float,
     return scale, (pw - cw * scale) / 2, (ph - ch * scale) / 2
 
 
-def _entry_rect(aux: dict[str, Any], paper_pt: tuple[float, float], to_pt: Callable) -> Any:
+def _entry_rect(aux: dict[str, Any], paper_pt: tuple[float, float], src_pt: tuple[float, float],
+                layout: tuple[float, float, float]) -> Any:
+    """入口码贴纸矩形（点码区域）。entryRect 为前端贴纸外框 {x,y,w,h}（相对源页宽高的
+    比例，已在 normalize_aux 归一化）：外框左上角按 _layout 的 scale/偏移映射到纸张 pt，
+    外框边长按比例×源页尺寸×scale 计算（w/h<=0 时取 entrySizeMm×1.18），点码矩形为
+    外框内居中、边长 entrySizeMm（有比例时取 min(外框宽,外框高)/1.18）的正方形，
+    越出纸张时整体平移回页面内（不裁剪）。entryRect 为空时按 entryCorner 离纸边 8mm 放置。"""
     import pymupdf
 
     size = aux["entrySizeMm"] * MM
     pw, ph = paper_pt
-    if isinstance(aux.get("entryRect"), dict):
-        b = aux["entryRect"]
-        return to_pt({k: float(b.get(k) or 0) for k in ("x", "y", "width", "height")})
+    er = aux.get("entryRect")
+    if isinstance(er, dict):
+        scale, ox, oy = layout
+        cw, ch = src_pt
+        w, h = float(er.get("w") or 0), float(er.get("h") or 0)
+        if w > 0 and h > 0:  # 旧数据：外框宽高占源页比例
+            fw, fh = w * cw * scale, h * ch * scale
+            side = min(fw, fh) / 1.18
+        else:
+            fw = fh = aux["entrySizeMm"] * 1.18 * MM
+            side = size
+        x0 = ox + float(er.get("x") or 0) * cw * scale
+        y0 = oy + float(er.get("y") or 0) * ch * scale
+        rect = pymupdf.Rect(x0 + (fw - side) / 2, y0 + (fh - side) / 2,
+                            x0 + (fw + side) / 2, y0 + (fh + side) / 2)
+        # 平移（不裁剪）到纸张页面内（矩形比页面还大的极端数据贴左/上边）
+        dx = -rect.x0 if rect.x0 < 0 else (pw - rect.x1 if rect.x1 > pw else 0.0)
+        dy = -rect.y0 if rect.y0 < 0 else (ph - rect.y1 if rect.y1 > ph else 0.0)
+        return pymupdf.Rect(rect.x0 + dx, rect.y0 + dy, rect.x1 + dx, rect.y1 + dy)
     margin = 8 * MM
     corner = aux.get("entryCorner") or "tr"
     x0 = margin if corner in ("tl", "bl") else pw - margin - size
@@ -390,7 +431,7 @@ def build_pdfs(pdf_bytes: bytes, ocr: dict[str, Any] | None, regions: list[dict[
                 value = r["code"] if r.get("isEntry") else r["code"] - 25000
                 draw_placeholder_dots(dp, rect, value, aux)
             if with_entry_sticker and (aux["entryPlacement"] == "all" or page_no == 1):
-                er = _entry_rect(aux, paper_pt, to_pt) & page_rect
+                er = _entry_rect(aux, paper_pt, (sp.rect.width, sp.rect.height), (scale, ox, oy))
                 if not er.is_empty:
                     cp.draw_rect(er, color=(0.9, 0.3, 0.2), width=1.2)
                     cp.insert_textbox(pymupdf.Rect(er.x0, er.y1 + 1, er.x1 + 30, er.y1 + 14),

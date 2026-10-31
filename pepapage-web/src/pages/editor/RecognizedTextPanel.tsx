@@ -1,24 +1,28 @@
-// single 右栏「识别文字」（UI 规格 7.5，截图 analysis/screenshots/09、11）：按字幕行分组显示词，选中框时高亮区间内的词。
-// 点词行为以截图 11 的提示为准：未选框时点词试听；选中可编辑框后，点区间外的词把首/末扩展到该词，
-// 点首/末词把它从区间里去掉（向内收缩），成功即写入音频区间；「清空」去掉高亮，下一次点词从该词重新开始。
-// 选中可编辑框后也可按住一个词拖到另一个词，松开即把区间设为这串词（替换原区间）。
-// 「音频」页签由 EditorPage 传入（AudioLibrary），用于复用已导入的音源再裁剪。
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Loader2, Mic, Music, PanelRightClose, PanelRightOpen } from 'lucide-react'
-import type { AnalysisLine, AnalysisLineWord } from '../../api/editorTypes'
+// single 最右「识别文字」列（UI 规格 7.5，契约 docs/team-contract.md 5.6）：显示「音频」列当前查看音源的按词识别结果
+// （原书音频用 /analysis 的 lines，清单音源用 <fileName>.asr.json；行结构为最小公共接口 RecognizedLine，AnalysisLine 兼容）。
+// 点词/拖词规则：未选框时点词只试听；选中框且查看的就是该框音源时，按词改区间（原书音源写 manualRanges，清单音源写 start/end），
+// 点区间外的词扩展首/末、点首/末词向内收缩；查看的不是该框音源时，点一个词/拖一串词 = 先把框改绑到查看的音源，再把区间设成这串词
+// （改绑与区间都只改内存，随「保存」写入）。高亮只在「查看的音源 = 该框音源」时显示；「清空」去掉高亮，下一次点词从该词重新开始。
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Loader2, Mic, PanelRightClose, PanelRightOpen } from 'lucide-react'
+import type { RecognizedLine, RecognizedWord } from '../../api/editorTypes'
 
-export type RecognizedState = { status: 'loading' } | { status: 'error' } | { status: 'ready'; lines: AnalysisLine[] }
+export type RecognizedState =
+  | { status: 'loading' }
+  | { status: 'error' }
+  | { status: 'idle'; message: string; failed?: boolean }
+  | { status: 'ready'; lines: RecognizedLine[] }
 
 interface Props {
   state: RecognizedState
-  /** 单音频共享音轨，用于点词试听 */
+  /** 当前查看音源的音频地址，用于点词试听 */
   audioUrl: string | null
-  /** 当前选中框：range 为有效区间（未匹配为 null），editable 对应编辑器的 editableRange */
-  selection: { key: string; range: { start: number; end: number } | null; editable: boolean } | null
+  /** 音源名（头部显示） */
+  sourceName: string
+  /** 当前选中框：range 为该框在查看音源下的有效区间，sameSource 表示查看的就是该框当前音源 */
+  selection: { key: string; range: { start: number; end: number } | null; sameSource: boolean } | null
+  /** 点词/拖词提交的区间；跨音源时由 EditorPage 先改绑再设区间 */
   onRange: (start: number, end: number) => void
-  /** 「音频」页签内容与音频个数 */
-  audioTab?: ReactNode
-  audioCount?: number
 }
 
 const MIN_RANGE = 0.01
@@ -31,11 +35,10 @@ function fmt(t: number) {
   return `${m}:${String(s).padStart(2, '0')}.${tenths % 10}`
 }
 
-const hasTime = (w: AnalysisLineWord) => Number.isFinite(w.start) && Number.isFinite(w.end) && w.start >= 0 && w.end > w.start
+const hasTime = (w: RecognizedWord) => Number.isFinite(w.start) && Number.isFinite(w.end) && w.start >= 0 && w.end > w.start
 
-export default function RecognizedTextPanel({ state, audioUrl, selection, onRange, audioTab, audioCount }: Props) {
+export default function RecognizedTextPanel({ state, audioUrl, sourceName, selection, onRange }: Props) {
   const [collapsed, setCollapsed] = useState(false)
-  const [tab, setTab] = useState<'text' | 'audio'>('text')
   const [cleared, setCleared] = useState(false)
   // 拖选：from 为按下的词，to 为指针当前所在的词，moved 表示拖到过别的词（否则松开后按普通点词处理）
   const [drag, setDrag] = useState<{ from: number; to: number; moved: boolean } | null>(null)
@@ -48,7 +51,7 @@ export default function RecognizedTextPanel({ state, audioUrl, selection, onRang
   const lines = state.status === 'ready' ? state.lines : []
   // 全部词按出现顺序展平，id = 在展平数组里的下标
   const flat = useMemo(() => {
-    const out: { w: AnalysisLineWord; line: number }[] = []
+    const out: { w: RecognizedWord; line: number }[] = []
     lines.forEach((l, li) => l.words.forEach((w) => out.push({ w, line: li })))
     return out
   }, [lines])
@@ -65,7 +68,9 @@ export default function RecognizedTextPanel({ state, audioUrl, selection, onRang
   const selKey = selection?.key ?? null
   useEffect(() => setCleared(false), [selKey])
 
-  const r = selection?.editable && !cleared ? selection.range : null
+  // 高亮只在「查看的音源就是选中框的音源」时显示
+  const sameSource = !!selection?.sameSource
+  const r = sameSource && !cleared ? (selection?.range ?? null) : null
   const hit = useMemo(() => {
     const ids: number[] = []
     if (r) flat.forEach(({ w }, i) => hasTime(w) && w.start < r.end && w.end > r.start && ids.push(i))
@@ -83,7 +88,7 @@ export default function RecognizedTextPanel({ state, audioUrl, selection, onRang
 
   useEffect(() => () => cancelAnimationFrame(raf.current), [])
 
-  const playWord = (w: AnalysisLineWord) => {
+  const playWord = (w: RecognizedWord) => {
     const a = audioRef.current
     if (!a || !audioUrl || !hasTime(w)) return
     if (a.src !== audioUrl) a.src = audioUrl
@@ -111,7 +116,9 @@ export default function RecognizedTextPanel({ state, audioUrl, selection, onRang
   const clickWord = (i: number) => {
     const w = flat[i].w
     if (!hasTime(w)) return
-    if (!selection?.editable) return playWord(w)
+    if (!selection) return playWord(w) // 未选框：只试听
+    // 查看的不是该框音源：点一个词 = 改绑到查看音源并把区间设成这个词
+    if (!sameSource) return commit(w.start, w.end)
     const cur = selection.range
     if (lo < 0 || !cur) return commit(w.start, w.end) // 没有高亮：从这个词重新开始
     if (i < lo) return commit(w.start, cur.end)
@@ -166,37 +173,19 @@ export default function RecognizedTextPanel({ state, audioUrl, selection, onRang
       </aside>
     )
 
-  const disabled = !!selection && !selection.editable
   const hint = !selection
-    ? '点击单词可试听；点击 PDF 线框后，在此处选首词与末词即可设定音频区间'
-    : disabled
-      ? '该区域使用自定义音源，不能按词设定区间，请在底部音轨拖动手柄裁剪；点击单词可试听'
-      : '拖过多个词可直接选中；点区间外的词扩展首/末，点首/末词收缩；成功即写入音频区间'
+    ? '未选中框：点击单词可试听。在 PDF 上选中框后，这里会切到该框的音源，点词/拖词即可设定区间'
+    : sameSource
+      ? '拖过多个词可直接选中；点区间外的词扩展首/末，点首/末词收缩；成功即写入音频区间，随「保存」写入'
+      : '该框绑定的是其他音源：点一个词或拖一串词，会先把它改绑到正在查看的音源，再把区间设成这些词'
 
   return (
     <aside className="flex w-56 shrink-0 flex-col border-l border-[#e8e4dc] bg-[#faf9f6]">
       <div className="flex items-center gap-2 px-3 py-3">
-        {audioTab ? (
-          <div className="flex flex-1 items-center gap-2 text-xs font-bold">
-            {(['text', 'audio'] as const).map((t) => (
-              <button
-                key={t}
-                onClick={() => setTab(t)}
-                className={`flex items-center gap-1 border-b-2 pb-0.5 ${tab === t ? 'border-indigo-500 text-slate-700' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
-              >
-                {t === 'text' ? <Mic size={13} /> : <Music size={13} />}
-                {t === 'text' ? '识别文字' : `音频${audioCount ? ` ${audioCount}` : ''}`}
-              </button>
-            ))}
-          </div>
-        ) : (
-          <>
-            <Mic size={13} className="text-slate-400" />
-            <span className="flex-1 text-xs font-bold text-slate-500">识别文字</span>
-          </>
-        )}
-        {tab === 'text' && state.status === 'ready' && <span className="text-[11px] text-slate-400">{flat.length} 词</span>}
-        {tab === 'text' && selection?.editable && (
+        <Mic size={13} className="shrink-0 text-slate-400" />
+        <span className="min-w-0 flex-1 truncate text-xs font-bold text-slate-500" title={sourceName}>{sourceName}</span>
+        {state.status === 'ready' && <span className="text-[11px] text-slate-400">{flat.length} 词</span>}
+        {sameSource && (
           <button onClick={() => setCleared(true)} disabled={lo < 0} className="text-[11px] text-slate-400 hover:text-slate-700 disabled:opacity-40" title="清空当前词选择，下次点词重新开始">
             清空
           </button>
@@ -205,14 +194,14 @@ export default function RecognizedTextPanel({ state, audioUrl, selection, onRang
           <PanelRightClose size={15} />
         </button>
       </div>
-      {tab === 'audio' && audioTab}
-      <div ref={listRef} className={`min-h-0 flex-1 overflow-y-auto px-3 pb-3 ${disabled ? 'opacity-60' : ''} ${tab === 'audio' ? 'hidden' : ''} select-none`}>
+      <div ref={listRef} className="min-h-0 flex-1 select-none overflow-y-auto px-3 pb-3">
         {state.status === 'loading' && (
           <div className="flex items-center gap-1 text-xs text-slate-400">
             <Loader2 size={13} className="animate-spin" /> 加载中…
           </div>
         )}
         {state.status === 'error' && <div className="text-xs text-rose-600">识别文字加载失败</div>}
+        {state.status === 'idle' && <div className={`text-xs ${state.failed ? 'text-rose-600' : 'text-slate-400'}`}>{state.message}</div>}
         {state.status === 'ready' && !lines.length && <div className="text-xs text-slate-400">没有识别到字幕</div>}
         {lines.map((l, li) => (
           <div key={l.index} className="mb-3">
@@ -227,7 +216,7 @@ export default function RecognizedTextPanel({ state, audioUrl, selection, onRang
                       key={wi}
                       data-word={i}
                       onPointerDown={(e) => {
-                        if (e.button !== 0 || !selection?.editable || !hasTime(w)) return
+                        if (e.button !== 0 || !selection || !hasTime(w)) return
                         setDrag({ from: i, to: i, moved: false })
                       }}
                       onClick={() => !swallowClick.current && clickWord(i)}
@@ -246,9 +235,7 @@ export default function RecognizedTextPanel({ state, audioUrl, selection, onRang
           </div>
         ))}
       </div>
-      <div className="border-t border-[#e8e4dc] px-3 py-2 text-[10px] leading-4 text-slate-400">
-        {tab === 'audio' ? '选中框后点「使用」绑定音源，再在底部音轨拖动蓝色手柄裁剪；同一音频可给多个框各自裁剪' : hint}
-      </div>
+      <div className="border-t border-[#e8e4dc] px-3 py-2 text-[10px] leading-4 text-slate-400">{hint}</div>
       <audio ref={audioRef} preload="none" onPause={() => cancelAnimationFrame(raf.current)} />
     </aside>
   )

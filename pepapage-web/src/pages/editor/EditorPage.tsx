@@ -1,18 +1,20 @@
 // 原书辅码编辑器 /picture-books/:id/editor（UI 规格第 7 节）。
 // 画布坐标统一为 OCR 渲染平面像素（scale=2），页码 1 起始。
+// single 模式右侧两列：「音频」（音频库，上传额外音源单独识别，契约 docs/team-contract.md 第 5 节）
+// 与「识别文字」（显示音频列当前查看音源的识别结果）；点词/拖词改区间或跨音源改绑，随「保存」写入。
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { ArrowLeft, FileText, Loader2, Music, Save, Share2, X, ZoomIn, ZoomOut } from 'lucide-react'
 import { projectApi, storageApi, uploadToOss } from '../../api/books'
-import { bookActionApi, projectFilesApi } from '../../api/projectFiles'
+import { audioLibraryApi, bookActionApi, projectFilesApi } from '../../api/projectFiles'
 import type { BookProject } from '../../api/types'
-import type { AuxCodeSettings, Box } from '../../api/editorTypes'
+import type { AnalysisLine, AsrResult, AudioLibraryItem, AuxCodeSettings, Box, RecognizedLine } from '../../api/editorTypes'
 import { PdfPage, boxStyle, usePdf } from '../reader/pdfDoc'
 import TrackPanel from './TrackPanel'
 import SettingsPanel, { type Tool } from './SettingsPanel'
 import ExportPanel from './ExportPanel'
 import RecognizedTextPanel, { type RecognizedState } from './RecognizedTextPanel'
-import AudioLibrary from './AudioLibrary'
+import AudioLibrary, { type AudioColumnItem } from './AudioLibrary'
 import {
   FILES,
   HANDLES,
@@ -35,6 +37,8 @@ import {
 const MODE_TEXT: Record<string, string> = { single: '单音频', multi: '多音频', tts: 'AI 配音' }
 const PAPER_MM: Record<string, [number, number]> = { A4: [210, 297], A5: [148, 210], B5: [176, 250] }
 const BASE_WIDTH = 860
+/** 音频库单文件上限（契约 5.4：200 MiB，前端先挡） */
+const MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 /** 拖动距离小于该显示像素视为单击，放置默认尺寸 */
 const CLICK_PX = 4
 /**
@@ -163,8 +167,17 @@ export default function EditorPage() {
   const [showCodes, setShowCodes] = useState(false)
   /** 画布点击框触发试听：key 为被点击的框，n 每次点击递增 */
   const [playReq, setPlayReq] = useState<{ key: string; n: number } | null>(null)
-  /** single 右栏识别文字，来自 GET /analysis 的 lines */
-  const [recognized, setRecognized] = useState<RecognizedState>({ status: 'loading' })
+  /** single 右栏原书音频识别文字，来自 GET /analysis 的 lines（保留 sentenceIndex 供字幕标签带点选句框） */
+  const [recognized, setRecognized] = useState<{ status: 'loading' } | { status: 'error' } | { status: 'ready'; lines: AnalysisLine[] }>({ status: 'loading' })
+  /** 音频库清单（契约 5.2，book-audio-library.json） */
+  const [libItems, setLibItems] = useState<AudioLibraryItem[]>([])
+  /** 音频列上传中的临时项（显示进度） */
+  const [uploads, setUploads] = useState<{ key: string; name: string; progress: number }[]>([])
+  /** 识别文字列当前查看的音源：'' 为原书音频，否则清单/旧绑定文件名 */
+  const [viewingAudio, setViewingAudio] = useState('')
+  /** 清单音源的识别结果，按 fileName 缓存（updatedAt 变化即重识别后自动刷新） */
+  const [asrLines, setAsrLines] = useState<Record<string, { updatedAt: string; lines: RecognizedLine[] }>>({})
+  const asrInflight = useRef(new Set<string>())
   const scrollRef = useRef<HTMLDivElement>(null)
   const { doc, sizes, error: pdfErr } = usePdf(pdfUrl)
 
@@ -219,6 +232,59 @@ export default function EditorPage() {
     setData((d) => (d ? fn(d) : d))
     setDirty(true)
   }, [])
+
+  // ---------- 音频库（契约 5）----------
+  // 清单文件（custom-audio-lib- 前缀按契约 5.1，清单未加载完时兜底）：解绑/换绑/删框都不删文件，只能在音频列删除
+  const isLibFile = useCallback((fileName: string) => fileName.startsWith('custom-audio-lib-') || libItems.some((i) => i.fileName === fileName), [libItems])
+
+  useEffect(() => {
+    if (!project || mode !== 'single') return
+    let off = false
+    audioLibraryApi
+      .list(id)
+      .then((m) => !off && setLibItems(Array.isArray(m?.items) ? m.items : []))
+      .catch(() => {})
+    return () => {
+      off = true
+    }
+  }, [id, project, mode])
+
+  // 有排队/识别中的项时每 2 秒轮询清单
+  useEffect(() => {
+    if (mode !== 'single' || !libItems.some((i) => i.status === 'queued' || i.status === 'running')) return
+    const t = setInterval(() => {
+      audioLibraryApi
+        .list(id)
+        .then((m) => setLibItems(Array.isArray(m?.items) ? m.items : []))
+        .catch(() => {})
+    }, 2000)
+    return () => clearInterval(t)
+  }, [id, mode, libItems])
+
+  // 清单项识别成功后读取它的 asr.json（按 fileName+updatedAt 缓存，重识别后自动刷新）
+  useEffect(() => {
+    for (const it of libItems) {
+      if (it.status !== 'succeeded' || !it.asrFile) continue
+      const c = asrLines[it.fileName]
+      if (c && c.updatedAt === it.updatedAt) continue
+      const key = `${it.fileName}@${it.updatedAt}`
+      if (asrInflight.current.has(key)) continue
+      asrInflight.current.add(key)
+      projectFilesApi
+        .readJson<AsrResult>(id, it.asrFile)
+        .then((r) => setAsrLines((m) => ({ ...m, [it.fileName]: { updatedAt: it.updatedAt, lines: Array.isArray(r?.lines) ? r.lines : [] } })))
+        .catch(() => setAsrLines((m) => ({ ...m, [it.fileName]: { updatedAt: it.updatedAt, lines: [] } })))
+        .finally(() => asrInflight.current.delete(key))
+    }
+  }, [libItems, asrLines, id])
+
+  // 选中框变化时，识别文字列自动切到该框当前的音源（有自定义绑定 → 该文件，否则原书音频）
+  useEffect(() => {
+    if (!selKey) return
+    setViewingAudio(data?.customAudio.entries[selKey]?.fileName ?? '')
+    // 只随选中框切换，读当次渲染的 data 即可
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selKey])
 
   const boxes = useMemo(() => (data ? buildBoxes(mode, data) : []), [data, mode])
   const byPage = useMemo(() => {
@@ -284,7 +350,8 @@ export default function EditorPage() {
         const rid = b.key.slice(7)
         const fileName = data?.customAudio.entries[b.key]?.fileName
         update((d) => removeKeyArtifacts({ ...d, customCodes: { regions: d.customCodes.regions.filter((r) => r.id !== rid) } }, b.key))
-        if (fileName && data) {
+        // 音频库清单文件不删（只能从音频列删除），旧绑定文件维持没有框再用就删
+        if (fileName && data && !isLibFile(fileName)) {
           const rest = { ...data.customAudio.entries }
           delete rest[b.key]
           if (!fileInUse(rest, fileName)) projectFilesApi.remove(id, fileName).catch(() => {})
@@ -297,7 +364,7 @@ export default function EditorPage() {
       update((d) => ({ ...d, alignment: { ...d.alignment, excludedBoxKeys: [...(d.alignment.excludedBoxKeys ?? []), b.key] } }))
       setSelKey(null)
     },
-    [data, id, update],
+    [data, id, isLibFile, update],
   )
 
   /** 默认尺寸：矩形 30×22mm、圆形 26×26mm，按 1mm ≈ 144/25.4 OCR 像素换算，以点击处为中心。 */
@@ -458,6 +525,8 @@ export default function EditorPage() {
 
   // ---------- 音轨 ----------
   const customAudio = sel ? data?.customAudio.entries[sel.key] : undefined
+  /** 选中框当前绑定的音源：自定义音源为文件名，原书音频为空串 */
+  const selSrc = customAudio?.fileName ?? ''
   const trackAudioName = customAudio?.fileName ?? (mode === 'single' ? undefined : sel?.audioFileName)
   useEffect(() => {
     resolveUrl(trackAudioName)
@@ -470,15 +539,27 @@ export default function EditorPage() {
   const clipSrc = customAudio?.fileName ?? ''
   const canPaste = !!clip && clip.src === clipSrc && (editableRange || !!customAudio)
 
-  // 音轨面板顶部标签带：single 共享音轨的识别字幕行，固定在音频时间上，不随区间拖动；行命中句时点击选中该句框
+  // 音轨面板顶部标签带：共享音轨用 /analysis 的识别字幕行（行命中句时点击选中该句框）；
+  // 清单音源用它的识别行（只读、不带 boxKey），都固定在音频时间上，不随区间拖动
   const cues = useMemo(() => {
-    if (!editableRange || recognized.status !== 'ready') return undefined
-    const bySentence = new Map<number, string>()
-    for (const b of boxes) if (b.kind === 'sentence' && b.sentenceIndex != null) bySentence.set(b.sentenceIndex, b.key)
-    return recognized.lines
-      .filter((l) => Number.isFinite(l.start) && Number.isFinite(l.end) && l.end > l.start)
-      .map((l) => ({ start: l.start, end: l.end, text: l.text, boxKey: l.sentenceIndex != null ? bySentence.get(l.sentenceIndex) : undefined }))
-  }, [editableRange, recognized, boxes])
+    if (!sel) return undefined
+    if (editableRange) {
+      if (recognized.status !== 'ready') return undefined
+      const bySentence = new Map<number, string>()
+      for (const b of boxes) if (b.kind === 'sentence' && b.sentenceIndex != null) bySentence.set(b.sentenceIndex, b.key)
+      return recognized.lines
+        .filter((l) => Number.isFinite(l.start) && Number.isFinite(l.end) && l.end > l.start)
+        .map((l) => ({ start: l.start, end: l.end, text: l.text, boxKey: l.sentenceIndex != null ? bySentence.get(l.sentenceIndex) : undefined }))
+    }
+    if (customAudio) {
+      const c = asrLines[customAudio.fileName]
+      if (!c) return undefined
+      return c.lines
+        .filter((l) => Number.isFinite(l.start) && Number.isFinite(l.end) && l.end > l.start)
+        .map((l) => ({ start: l.start, end: l.end, text: l.text }))
+    }
+    return undefined
+  }, [sel, editableRange, recognized, boxes, customAudio, asrLines])
 
   const setRange = (start: number, end: number) => {
     if (!sel) return
@@ -529,34 +610,125 @@ export default function EditorPage() {
       return { ...d, alignment: { ...d.alignment, manualRanges: m } }
     })
   }
+  /** 识别文字列跨音源点词/拖词：先把框改绑到查看的音源，再把区间设成这串词（只改内存，随「保存」写入）。 */
+  const rebindRange = (fileName: string, originalName: string, start: number, end: number) => {
+    if (!sel) return
+    const s = Math.round(start * 1000) / 1000
+    const en = Math.round(end * 1000) / 1000
+    update((d) => {
+      const entries = { ...d.customAudio.entries }
+      const manual = { ...(d.alignment.manualRanges ?? {}) }
+      const at = new Date().toISOString()
+      if (fileName) entries[sel.key] = { fileName, originalName, updatedAt: at, start: s, end: en }
+      else {
+        // 改绑回原书音频：删掉自定义绑定，区间写 manualRanges
+        delete entries[sel.key]
+        manual[sel.key] = { start: s, end: en, sentenceIndexes: sel.sentenceIndex != null ? [sel.sentenceIndex] : [], text: sel.text, updatedAt: at }
+      }
+      return { ...d, customAudio: { version: 1, entries }, alignment: { ...d.alignment, manualRanges: manual } }
+    })
+  }
+  /** 识别文字列点词/拖词提交：查看的音源就是选中框的音源时按现有规则改区间；否则先改绑到查看的音源再设区间。 */
+  const onViewRange = (start: number, end: number) => {
+    if (!sel || !data) return
+    const boxSrc = data.customAudio.entries[sel.key]?.fileName ?? ''
+    if (boxSrc === viewingAudio) return setRange(start, end)
+    const it = audioItems.find((i) => i.fileName === viewingAudio)
+    rebindRange(viewingAudio, it?.originalName ?? it?.name ?? viewingAudio, start, end)
+  }
   const toggleEntry = (key: string) => update((d) => ({ ...d, aux: { ...d.aux, entryBoxKey: d.aux.entryBoxKey === key ? null : key } }))
 
   const persistCustomAudio = async (next: EditorData['customAudio']) => {
     await projectFilesApi.writeJson(id, FILES.customAudio, next)
     setData((d) => d && { ...d, customAudio: next })
   }
-  const uploadAudio = async (f: File) => {
-    if (!sel || !data) return
-    setBusy(true)
+
+  /** 引用某音频文件的框数 */
+  const usesOf = (fileName: string) => Object.values(data?.customAudio.entries ?? {}).filter((e) => e?.fileName === fileName).length
+
+  /** 清单 upsert：按 fileName 插入或替换 */
+  const upsertLibItem = (item: AudioLibraryItem) =>
+    setLibItems((l) => {
+      const i = l.findIndex((x) => x.fileName === item.fileName)
+      if (i < 0) return [...l, item]
+      const c = [...l]
+      c[i] = item
+      return c
+    })
+
+  /** 上传一个文件进音频库：policy → 直传 OSS（音频列临时项显示进度）→ 加入清单；超过 200 MiB 或失败返回 null 并提示 */
+  const uploadToLibrary = async (f: File): Promise<AudioLibraryItem | null> => {
+    if (f.size > MAX_UPLOAD_BYTES) {
+      setNotice(`「${f.name}」超过 200 MiB，未上传`)
+      return null
+    }
+    const key = `upload:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`
+    setUploads((u) => [...u, { key, name: f.name, progress: 0 }])
     try {
-      const policy = await projectFilesApi.customAudioPolicy(id, f.name, sel.key)
-      await uploadToOss(policy, f)
-      const fileName = fileLabel(policy.key)
-      const old = data.customAudio.entries[sel.key]?.fileName
-      const next = {
-        version: 1 as const,
-        entries: { ...data.customAudio.entries, [sel.key]: { fileName, originalName: f.name, updatedAt: new Date().toISOString() } },
-      }
-      await persistCustomAudio(next)
-      if (old && old !== fileName && !fileInUse(next.entries, old)) projectFilesApi.remove(id, old).catch(() => {})
-      setUrls((m) => {
-        const c = { ...m }
-        delete c[fileName]
-        return c
-      })
-      setNotice('已更换音源')
+      const policy = await audioLibraryApi.policy(id, f.name)
+      await uploadToOss(policy, f, (r) => setUploads((u) => u.map((x) => (x.key === key ? { ...x, progress: Math.round(r * 100) } : x))))
+      const item = await audioLibraryApi.add(id, fileLabel(policy.key), f.name)
+      upsertLibItem(item)
+      return item
     } catch (e) {
       setNotice(`上传失败：${(e as Error).message}`)
+      return null
+    } finally {
+      setUploads((u) => u.filter((x) => x.key !== key))
+    }
+  }
+
+  /** 音频列上传：可多选、不需要先选中框；超过 200 MiB 的文件先挡下 */
+  const uploadLibraryFiles = async (files: File[]) => {
+    const overs = files.filter((f) => f.size > MAX_UPLOAD_BYTES).length
+    for (const f of files) if (f.size <= MAX_UPLOAD_BYTES) await uploadToLibrary(f)
+    if (overs) setNotice(`${overs} 个文件超过 200 MiB，未上传`)
+  }
+
+  /** 旧绑定文件补识别 / 失败重试：重新加入清单排队（服务端对其他状态会重置为 queued） */
+  const identifyAudio = async (fileName: string, originalName: string) => {
+    try {
+      upsertLibItem(await audioLibraryApi.add(id, fileName, originalName))
+    } catch (e) {
+      setNotice(`识别失败：${(e as Error).message}`)
+    }
+  }
+
+  /** 从音频库删除清单项：服务端删除文件与所有绑定，内存同步清掉引用，正在查看则切回原书音频 */
+  const deleteLibItem = async (item: AudioLibraryItem) => {
+    const uses = usesOf(item.fileName)
+    if (!window.confirm(uses ? `删除「${item.originalName}」会解除 ${uses} 个框的绑定，确定删除？` : `确定删除「${item.originalName}」？`)) return
+    try {
+      await audioLibraryApi.remove(id, item.fileName)
+      setLibItems((l) => l.filter((x) => x.fileName !== item.fileName))
+      if (uses)
+        update((d) => {
+          const entries = { ...d.customAudio.entries }
+          for (const k of Object.keys(entries)) if (entries[k]?.fileName === item.fileName) delete entries[k]
+          return { ...d, customAudio: { version: 1, entries } }
+        })
+      setAsrLines((m) => {
+        const c = { ...m }
+        delete c[item.fileName]
+        return c
+      })
+      setViewingAudio((v) => (v === item.fileName ? '' : v))
+    } catch (e) {
+      setNotice(`删除失败：${(e as Error).message}`)
+    }
+  }
+
+  /** 音轨面板「更换音源」：上传进音频库并绑定到当前框（清单文件只改内存，随「保存」写入） */
+  const uploadAudio = async (f: File) => {
+    if (!sel) return
+    setBusy(true)
+    try {
+      const item = await uploadToLibrary(f)
+      if (item)
+        update((d) => ({
+          ...d,
+          customAudio: { version: 1, entries: { ...d.customAudio.entries, [sel.key]: { fileName: item.fileName, originalName: f.name, updatedAt: new Date().toISOString() } } },
+        }))
     } finally {
       setBusy(false)
     }
@@ -565,6 +737,16 @@ export default function EditorPage() {
     if (!sel || !data) return
     const old = data.customAudio.entries[sel.key]
     if (!old) return
+    if (isLibFile(old.fileName)) {
+      // 清单文件不删文件，只解除绑定，随「保存」写入
+      update((d) => {
+        const entries = { ...d.customAudio.entries }
+        delete entries[sel.key]
+        return { ...d, customAudio: { version: 1, entries } }
+      })
+      setNotice('已恢复原音源')
+      return
+    }
     setBusy(true)
     try {
       const entries = { ...data.customAudio.entries }
@@ -578,7 +760,7 @@ export default function EditorPage() {
       setBusy(false)
     }
   }
-  /** 右栏「音频」复用已导入的音源：绑定后整段播放，再在音轨面板拖动手柄裁剪。与上传一样立即写入 */
+  /** 旧绑定文件（不在清单里）的「使用」：维持立即写入、没有框再用就删文件的逻辑 */
   const reuseAudio = async (fileName: string, originalName: string) => {
     if (!sel || !data) return
     const old = data.customAudio.entries[sel.key]?.fileName
@@ -590,7 +772,7 @@ export default function EditorPage() {
         entries: { ...data.customAudio.entries, [sel.key]: { fileName, originalName, updatedAt: new Date().toISOString() } },
       }
       await persistCustomAudio(next)
-      if (old && !fileInUse(next.entries, old)) projectFilesApi.remove(id, old).catch(() => {})
+      if (old && !fileInUse(next.entries, old) && !isLibFile(old)) projectFilesApi.remove(id, old).catch(() => {})
       setNotice('已使用该音源，可在音轨拖动手柄裁剪')
     } catch (e) {
       setNotice(`操作失败：${(e as Error).message}`)
@@ -598,21 +780,100 @@ export default function EditorPage() {
       setBusy(false)
     }
   }
-
-  // 右栏「音频」：已导入的自定义音源按文件去重，统计被几个框使用
-  const library = useMemo(() => {
-    const m = new Map<string, { fileName: string; name: string; uses: number }>()
-    for (const e of Object.values(data?.customAudio.entries ?? {})) {
-      if (!e?.fileName) continue
-      const it = m.get(e.fileName)
-      if (it) it.uses++
-      else m.set(e.fileName, { fileName: e.fileName, name: e.originalName || fileLabel(e.fileName), uses: 1 })
+  /** 音频列「使用」：清单文件只改内存（随「保存」写入）；原书音频即恢复原音源；旧文件维持立即写入 */
+  const bindAudio = async (fileName: string, originalName: string) => {
+    if (!sel) return
+    if (!fileName) return removeAudio()
+    if (isLibFile(fileName)) {
+      update((d) => ({
+        ...d,
+        customAudio: { version: 1, entries: { ...d.customAudio.entries, [sel.key]: { fileName, originalName, updatedAt: new Date().toISOString() } } },
+      }))
+      setViewingAudio(fileName)
+      setNotice('已使用该音源，可在音轨拖动手柄裁剪（随「保存」写入）')
+      return
     }
-    return [...m.values()]
-  }, [data?.customAudio])
+    await reuseAudio(fileName, originalName)
+  }
+
+  // 右侧「音频」列条目：原书音频 + 清单项 + 不在清单里的旧绑定文件 + 上传中的临时项
+  const audioItems = useMemo<AudioColumnItem[]>(() => {
+    if (!data) return []
+    const boxSrc = selKey ? (data.customAudio.entries[selKey]?.fileName ?? '') : null
+    const usingOf = (f: string) => boxSrc != null && boxSrc === f
+    const libSet = new Set(libItems.map((i) => i.fileName))
+    // 旧 custom-audio-* 绑定文件（不在清单里）：显示「识别」补进音频库
+    const legacy: AudioColumnItem[] = []
+    const seen = new Set<string>()
+    for (const e of Object.values(data.customAudio.entries)) {
+      if (!e?.fileName || libSet.has(e.fileName) || seen.has(e.fileName)) continue
+      seen.add(e.fileName)
+      legacy.push({
+        key: e.fileName,
+        kind: 'legacy',
+        fileName: e.fileName,
+        name: e.originalName || fileLabel(e.fileName),
+        originalName: e.originalName,
+        url: urls[e.fileName] ?? null,
+        uses: usesOf(e.fileName),
+        using: usingOf(e.fileName),
+        viewable: true,
+      })
+    }
+    return [
+      {
+        key: '__shared',
+        kind: 'shared',
+        fileName: '',
+        name: project?.audioFiles?.[0]?.originalName ?? '原书音频',
+        originalName: project?.audioFiles?.[0]?.originalName,
+        url: sharedUrl,
+        sharedLines: recognized.status === 'ready' ? recognized.lines.length : null,
+        sharedError: recognized.status === 'error',
+        using: usingOf(''),
+        viewable: true,
+      },
+      ...libItems.map((it) => ({
+        key: it.fileName,
+        kind: 'lib' as const,
+        fileName: it.fileName,
+        name: it.originalName || fileLabel(it.fileName),
+        originalName: it.originalName,
+        url: urls[it.fileName] ?? null,
+        lib: it,
+        uses: usesOf(it.fileName),
+        using: usingOf(it.fileName),
+        viewable: true,
+      })),
+      ...legacy,
+      ...uploads.map((u) => ({ key: u.key, kind: 'uploading' as const, fileName: '', name: u.name, url: null, uploadProgress: u.progress })),
+    ]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, selKey, libItems, urls, recognized, sharedUrl, project, uploads])
   useEffect(() => {
-    if (mode === 'single') library.forEach((f) => resolveUrl(f.fileName))
-  }, [library, mode, resolveUrl])
+    if (mode === 'single') audioItems.forEach((i) => resolveUrl(i.fileName))
+  }, [audioItems, mode, resolveUrl])
+
+  // 识别文字列：当前查看音源的识别状态、标题与试听地址
+  const viewState: RecognizedState = useMemo(() => {
+    if (!viewingAudio) return recognized
+    const it = libItems.find((i) => i.fileName === viewingAudio)
+    if (!it) return { status: 'idle', message: '该音源还没有识别结果，可在「音频」列点「识别」' }
+    if (it.status === 'queued') return { status: 'idle', message: '排队识别中…' }
+    if (it.status === 'running') return { status: 'idle', message: `识别中 ${Math.round(it.progress)}%…` }
+    if (it.status === 'failed') return { status: 'idle', message: `识别失败：${it.error ?? '未知错误'}`, failed: true }
+    const c = asrLines[it.fileName]
+    if (!c || c.updatedAt !== it.updatedAt) return { status: 'loading' }
+    return { status: 'ready', lines: c.lines }
+  }, [viewingAudio, recognized, libItems, asrLines])
+  const viewName = useMemo(() => {
+    if (!viewingAudio) return project?.audioFiles?.[0]?.originalName ?? '原书音频'
+    const it = libItems.find((i) => i.fileName === viewingAudio)
+    if (it) return it.originalName || fileLabel(it.fileName)
+    const e = Object.values(data?.customAudio.entries ?? {}).find((x) => x?.fileName === viewingAudio)
+    return e?.originalName || fileLabel(viewingAudio)
+  }, [viewingAudio, project, libItems, data?.customAudio])
+  const viewUrl = viewingAudio ? (urls[viewingAudio] ?? null) : sharedUrl
 
   // ---------- 快捷键 ----------
   useEffect(() => {
@@ -938,25 +1199,34 @@ export default function EditorPage() {
           </main>
 
           {mode === 'single' && (
-            <RecognizedTextPanel
-              state={recognized}
-              audioUrl={sharedUrl}
-              selection={sel ? { key: sel.key, range: range && { start: range.start, end: range.end }, editable: editableRange } : null}
-              onRange={(s, e) => editableRange && setRange(s, e)}
-              audioCount={library.length}
-              audioTab={
-                <AudioLibrary
-                  items={[
-                    { fileName: '', name: project?.audioFiles?.[0]?.originalName ?? '原书音频', url: sharedUrl },
-                    ...library.map((f) => ({ ...f, url: urls[f.fileName] ?? null })),
-                  ]}
-                  current={sel ? (customAudio?.fileName ?? '') : null}
-                  busy={busy}
-                  onUse={(it) => (it.fileName ? reuseAudio(it.fileName, it.name) : removeAudio())}
-                  onUpload={uploadAudio}
-                />
-              }
-            />
+            <>
+              <AudioLibrary
+                items={audioItems}
+                viewing={viewingAudio}
+                canUse={!!sel}
+                busy={busy}
+                onView={setViewingAudio}
+                onUse={(it) => bindAudio(it.fileName, it.originalName ?? it.name)}
+                onUpload={uploadLibraryFiles}
+                onIdentify={identifyAudio}
+                onDelete={deleteLibItem}
+              />
+              <RecognizedTextPanel
+                state={viewState}
+                audioUrl={viewUrl}
+                sourceName={viewName}
+                selection={
+                  sel
+                    ? {
+                        key: sel.key,
+                        range: selSrc === viewingAudio && range ? { start: range.start, end: range.end } : null,
+                        sameSource: selSrc === viewingAudio,
+                      }
+                    : null
+                }
+                onRange={onViewRange}
+              />
+            </>
           )}
         </div>
       )}

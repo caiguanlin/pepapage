@@ -350,3 +350,55 @@ export interface ProjectFileInfo {
   size: number
   updatedAt: string
 }
+
+// ---------------------------------------------------------------- 编辑器音频库（docs/team-contract.md 第 5 节）
+
+/** 契约 5.3：识别行/词的最小公共接口；/analysis 的 AnalysisLine 结构上兼容（多 page 等字段）。 */
+export interface RecognizedWord {
+  text: string
+  start: number
+  end: number
+}
+
+export interface RecognizedLine {
+  index: number
+  start: number
+  end: number
+  text: string
+  words: RecognizedWord[]
+}
+
+/** 契约 5.3：`<fileName>.asr.json` 识别结果，时间相对该音频文件（秒）。 */
+export interface AsrResult {
+  version: 1
+  fileName: string
+  duration: number
+  language: string
+  model: string
+  lines: RecognizedLine[]
+}
+
+/** 契约 5.2：音频库清单项（book-audio-library.json 的 items[]）。 */
+export interface AudioLibraryItem {
+  fileName: string
+  originalName: string
+  status: 'queued' | 'running' | 'succeeded' | 'failed'
+  /** 0–100 */
+  progress: number
+  /** 仅 failed 时有值 */
+  error: string | null
+  /** succeeded 时有值（秒） */
+  duration: number | null
+  lineCount: number | null
+  wordCount: number | null
+  asrFile: string | null
+  taskId: string
+  createdAt: string
+  updatedAt: string
+}
+
+/** 契约 5.2：音频库清单 book-audio-library.json（只有 server 写）；不存在视为 items: []。 */
+export interface AudioLibraryManifest {
+  version: 1
+  items: AudioLibraryItem[]
+}

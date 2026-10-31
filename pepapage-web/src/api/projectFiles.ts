@@ -1,5 +1,5 @@
 import { api, ApiError } from './client'
-import type { BookAnalysis, BookExport, ProjectFileInfo, ReaderData } from './editorTypes'
+import type { AudioLibraryItem, AudioLibraryManifest, BookAnalysis, BookExport, ProjectFileInfo, ReaderData } from './editorTypes'
 import type { BookProject, UploadPolicy } from './types'
 
 const enc = encodeURIComponent
@@ -21,11 +21,21 @@ export const projectFilesApi = {
   writeJson: (id: string, name: string, body: unknown) =>
     api<void>(`/book-projects/${id}/files/json?name=${enc(name)}`, { method: 'PUT', body }),
   remove: (id: string, name: string) => api<void>(`/book-projects/${id}/files?name=${enc(name)}`, { method: 'DELETE' }),
-  customAudioPolicy: (id: string, fileName: string, boxKey: string) =>
-    api<UploadPolicy>(`/book-projects/${id}/upload-policy`, {
-      method: 'POST',
-      body: { kind: 'custom_audio', fileName, boxKey },
-    }),
+}
+
+/** 编辑器音频库（docs/team-contract.md 5.4）：上传额外音源并单独识别，不参与原书对齐。 */
+export const audioLibraryApi = {
+  /** kind=library_audio 上传策略：不需要 boxKey，单文件上限 200 MiB，key 为 custom-audio-lib-* */
+  policy: (id: string, fileName: string) =>
+    api<UploadPolicy>(`/book-projects/${id}/upload-policy`, { method: 'POST', body: { kind: 'library_audio', fileName } }),
+  /** 清单 book-audio-library.json；不存在时服务端返回空 items */
+  list: (id: string) => api<AudioLibraryManifest>(`/book-projects/${id}/audio-library`),
+  /** 加入清单并开始识别；已在清单时 queued/running 原样返回，其他状态重置为 queued（失败重试 / 旧文件补识别） */
+  add: (id: string, fileName: string, originalName: string) =>
+    api<AudioLibraryItem>(`/book-projects/${id}/audio-library`, { method: 'POST', body: { fileName, originalName } }),
+  /** 移除清单项并删除音频与 asr.json，同时清掉 book-custom-audio.json 里的所有引用绑定 */
+  remove: (id: string, fileName: string) =>
+    api<{ removedBoxKeys: string[] }>(`/book-projects/${id}/audio-library?fileName=${enc(fileName)}`, { method: 'DELETE' }),
 }
 
 export const bookActionApi = {

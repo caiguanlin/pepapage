@@ -111,7 +111,7 @@ export default function TrackPanel(p: TrackPanelProps) {
   }
   useEffect(focusView, [duration, p.range?.start, p.range?.end, p.audioUrl])
 
-  // 绘制波形
+  // 绘制波形；面板收起再展开时 canvas 会重新挂载，collapsed 变化也要重画
   useEffect(() => {
     const c = canvasRef.current
     if (!c || !wave || !view) return
@@ -144,7 +144,7 @@ export default function TrackPanel(p: TrackPanelProps) {
       ctx.fillStyle = '#ef4444'
       ctx.fillRect(toX(cursor), 0, 1, h)
     }
-  }, [wave, view, p.range, p.editableRange, p.excluded, cursor])
+  }, [wave, view, p.range, p.editableRange, p.excluded, cursor, collapsed])
 
   const timeAt = (clientX: number) => {
     const c = canvasRef.current!

@@ -95,6 +95,74 @@ def test_custom_audio_crop_and_reuse():
     assert regions[2]["audioKey"] == "file:custom-audio-a.mp3"
 
 
+def test_excluded_sentence_dropped_from_paragraph_and_page():
+    book = _book(["One.", "Two.", "Three."])
+    al = {"alignments": [{"sentenceIndex": i, "start": i, "end": i + 1} for i in range(3)],
+          "excludedBoxKeys": ["p1:s0"]}
+    aux = export.normalize_aux({"level": "paragraph", "boxPadding": 0})
+    regions = export.plan_regions({"audioMode": "single"}, book, al, None, None, None, aux)
+    assert [r["boxKey"] for r in regions] == ["seg:1-2"]  # 删掉的句子不再并入段落
+    assert regions[0]["box"] == {"x": 0, "y": 30, "width": 50, "height": 50}
+    assert regions[0]["audio"]["segments"] == [{"start": 1.0, "end": 2.0}, {"start": 2.0, "end": 3.0}]
+    al["excludedBoxKeys"] = ["p1:s0", "p1:s1", "p1:s2"]
+    assert export.plan_regions({"audioMode": "single"}, book, al, None, None, None, aux) == []
+    al["excludedBoxKeys"] = ["p1:s0"]
+    aux = export.normalize_aux({"level": "page"})
+    regions = export.plan_regions({"audioMode": "single"}, book, al, None, None, None, aux)
+    assert regions[0]["boxKey"] == "p1:page" and len(regions[0]["audio"]["segments"]) == 2
+
+
+def _boxed_book(boxes):
+    sents = [{"sentenceIndex": i, "pageIndex": 1, "text": f"S{i}.", "words": [], "box": b} for i, b in enumerate(boxes)]
+    return {"pages": [{"index": 1, "width": 1000, "height": 1000, "sentenceStart": 0, "sentenceCount": len(sents)}],
+            "sentences": sents}
+
+
+def _bx(x, y, w=50, h=20):
+    return {"x": x, "y": y, "width": w, "height": h}
+
+
+def test_paragraph_breaks_at_columns():
+    aux = export.normalize_aux({"level": "paragraph", "boxPadding": 0})
+    al = {"alignments": [{"sentenceIndex": i, "start": i, "end": i + 1} for i in range(2)]}
+
+    def keys(boxes):
+        return [r["boxKey"] for r in export.plan_regions({"audioMode": "single"}, _boxed_book(boxes), al,
+                                                         None, None, None, aux)]
+
+    assert keys([_bx(0, 0), _bx(60, 0)]) == ["seg:0-1"]  # 同一行、水平间距小于行高
+    assert keys([_bx(0, 0), _bx(500, 0)]) == ["p1:s0", "p1:s1"]  # 同一高度但分栏
+    assert keys([_bx(0, 0), _bx(20, 25)]) == ["seg:0-1"]  # 上下相邻、水平重叠
+    assert keys([_bx(0, 0), _bx(500, 25)]) == ["p1:s0", "p1:s1"]  # 上下相邻但不在同一栏
+
+
+def test_paragraph_honours_sentence_edits():
+    book = _book(["One.", "Two.", "Three."])
+    base = {"alignments": [{"sentenceIndex": i, "start": i, "end": i + 1} for i in range(3)]}
+
+    def plan(extra=None, custom=None):
+        aux = export.normalize_aux({"level": "paragraph", "boxPadding": 0})
+        return export.plan_regions({"audioMode": "single"}, book, {**base, **(extra or {})}, None, None, custom, aux)
+
+    # 改过的框参与分组：s2 拖到右栏后不再并入段落，区域用改过的框
+    regions = plan({"boxOverrides": {"p1:s2": _bx(500, 60)}})
+    assert [r["boxKey"] for r in regions] == ["seg:0-1", "p1:s2"]
+    assert regions[1]["box"] == _bx(500, 60)
+    # 单独设过音频区间、重复次数、自定义音源的句子单独出码
+    regions = plan({"manualRanges": {"p1:s1": {"start": 5, "end": 6}}})
+    assert [r["boxKey"] for r in regions] == ["p1:s0", "p1:s1", "p1:s2"]
+    assert regions[1]["audio"]["segments"] == [{"start": 5.0, "end": 6.0}]
+    regions = plan({"repeatCounts": {"p1:s1": 3}})
+    assert regions[1]["boxKey"] == "p1:s1" and regions[1]["repeat"] == 3
+    regions = plan(custom={"entries": {"p1:s0": {"fileName": "custom-audio-a.mp3"}}})
+    assert [r["boxKey"] for r in regions] == ["p1:s0", "seg:1-2"]
+    assert regions[0]["audio"]["sourceFile"] == "custom-audio-a.mp3"
+    # 设为入口的句子单独成段并用入口码
+    aux = export.normalize_aux({"level": "paragraph", "boxPadding": 0, "entryBoxKey": "p1:s2"})
+    regions, _ = export.assign_codes(export.plan_regions({"audioMode": "single"}, book, base, None, None, None, aux), aux)
+    assert {r["boxKey"]: r["code"] for r in regions} == {"seg:0-1": 25001, "p1:s2": 56001}
+
+
 def test_aux_defaults():
     aux = export.normalize_aux(None)
     assert aux["entryCode"] == 56001 and aux["contentStartCode"] == 25001 and aux["boxPadding"] == 12

@@ -146,19 +146,24 @@ def _union(boxes: list[dict[str, float]]) -> dict[str, float]:
     return {"x": x0, "y": y0, "width": x1 - x0, "height": y1 - y0}
 
 
-def _paragraphs(sentences: list[dict[str, Any]], merge: str) -> list[list[dict[str, Any]]]:
-    """同页相邻句按垂直间距合并为段落。off 不合并；normal 间距 < 0.8 行高；loose < 1.6 行高。"""
+def _paragraphs(sentences: list[dict[str, Any]], merge: str,
+                solo: Callable[[dict[str, Any]], bool] = lambda s: False) -> list[list[dict[str, Any]]]:
+    """同页相邻句合并为段落，遇分栏断开。同一行（顶边差 < 半行高）须水平间距 < 1 行高；
+    上下相邻须水平方向有重叠，垂直间距 off 不合并、normal < 0.8 行高、loose < 1.6 行高。
+    solo 为真的句子单独成段。"""
     factor = {"off": -1e9, "normal": 0.8, "loose": 1.6}.get(merge, 0.8)
     groups: list[list[dict[str, Any]]] = []
     for s in sentences:
-        if groups:
+        if groups and not solo(s):
             last = groups[-1][-1]
-            if last["pageIndex"] == s["pageIndex"] and last.get("box") and s.get("box"):
+            if not solo(last) and last["pageIndex"] == s["pageIndex"] and last.get("box") and s.get("box"):
                 lb, sb = last["box"], s["box"]
                 line_h = min(lb["height"], sb["height"]) or 1
                 gap = sb["y"] - (lb["y"] + lb["height"])
-                same_line = abs(sb["y"] - lb["y"]) < line_h * 0.5
-                if same_line or (factor > 0 and gap < line_h * factor):
+                h_gap = max(sb["x"] - (lb["x"] + lb["width"]), lb["x"] - (sb["x"] + sb["width"]))
+                same_line = abs(sb["y"] - lb["y"]) < line_h * 0.5 and h_gap < line_h
+                stacked = factor > 0 and gap < line_h * factor and h_gap < 0
+                if same_line or stacked:
                     groups[-1].append(s)
                     continue
         groups.append([s])
@@ -196,6 +201,20 @@ def plan_regions(project: dict[str, Any], ocr: dict[str, Any] | None, alignment:
                         "audio": audio, "repeat": rep, "priority": priority, "custom": custom})
 
     sentences = (ocr or {}).get("sentences") or []
+
+    def skey(s: dict[str, Any]) -> str:
+        return f"p{s['pageIndex']}:s{s['sentenceIndex']}"
+
+    # 编辑器的删框、改框、改音频都按句记 p<page>:s<i>，段落/整页区域键对不上：分组前剔除删掉的句子、
+    # 换上改过的框；单独设过音频或设为入口的句子单独成段。否则这些编辑在导出时不生效
+    kept = [{**s, "box": overrides[skey(s)]} if overrides.get(skey(s)) else s
+            for s in sentences if skey(s) not in excluded]
+
+    def solo(s: dict[str, Any]) -> bool:
+        k = skey(s)
+        return (k in manual or bool((custom_entries.get(k) or {}).get("fileName"))
+                or int(repeats.get(k, 1) or 1) > 1 or aux.get("entryBoxKey") == k)
+
     times = {a["sentenceIndex"]: a for a in alignment.get("alignments") or []}
 
     def seg_of(s: dict[str, Any]) -> list[dict[str, float]]:
@@ -209,14 +228,14 @@ def plan_regions(project: dict[str, Any], ocr: dict[str, Any] | None, alignment:
                 add(f"p{s['pageIndex']}:s{s['sentenceIndex']}", s["pageIndex"], s.get("box"),
                     {"segments": seg_of(s)})
         elif level == "paragraph":
-            for gi, group in enumerate(_paragraphs([s for s in sentences if s.get("box")], aux["lineMerge"])):
+            for group in _paragraphs([s for s in kept if s.get("box")], aux["lineMerge"], solo):
                 segs = _clean_segments([x for s in group for x in seg_of(s)])
                 key = f"p{group[0]['pageIndex']}:s{group[0]['sentenceIndex']}" if len(group) == 1 \
                     else f"seg:{group[0]['sentenceIndex']}-{group[-1]['sentenceIndex']}"
                 add(key, group[0]["pageIndex"], _union([s["box"] for s in group]), {"segments": segs})
         else:
             for p in (ocr or {}).get("pages") or []:
-                ps = [s for s in sentences if s["pageIndex"] == p["index"]]
+                ps = [s for s in kept if s["pageIndex"] == p["index"]]
                 segs = _clean_segments([x for s in ps for x in seg_of(s)])
                 box = {"x": 0, "y": 0, "width": p.get("width") or 0, "height": p.get("height") or 0}
                 regions_before = len(regions)

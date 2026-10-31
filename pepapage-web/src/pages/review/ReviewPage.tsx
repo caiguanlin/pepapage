@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
-import { ArrowLeft, PenSquare, Plus, RotateCcw, Trash2 } from 'lucide-react'
+import { ArrowLeft, Loader2, PenSquare, Plus, RotateCcw, Trash2 } from 'lucide-react'
 import { projectApi } from '../../api/books'
 import type { BookProject } from '../../api/types'
 import { projectFilesApi, bookActionApi } from '../../api/projectFiles'
@@ -293,11 +293,6 @@ export default function ReviewPage() {
     }
   }
 
-  const onSaveOnly = () =>
-    run(async () => {
-      if ((await save()) != null) setNotice('校对结果已保存')
-    })
-
   const isTts = project?.audioMode === 'tts'
   const onConfirm = () =>
     run(async () => {
@@ -519,22 +514,18 @@ export default function ReviewPage() {
         <div className="min-w-0 flex-1 truncate text-sm text-slate-500">
           第 {currentPage} 页{selectedDraft ? ` · ${selectedDraft.text || '（空句）'}` : ''}
         </div>
+        {/* 底栏按钮集合照原版（index-CpWPkl9w.js 3717559 附近）：仅"稍后再说"+确认，原版没有"仅保存"。
+            原版只有 tts 能进入校对页，文字为"确认并开始配音"；复刻的编辑器另有"校对文字"入口，非 tts 实际执行重对齐 */}
         <button onClick={() => navigate('/picture-books')} className="rounded-lg px-4 py-2 text-sm text-slate-600 hover:bg-slate-100">
           稍后再说
-        </button>
-        <button
-          onClick={onSaveOnly}
-          disabled={busy || !stats.nonEmpty}
-          className="rounded-lg border border-slate-200 px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-40"
-        >
-          仅保存
         </button>
         <button
           onClick={onConfirm}
           disabled={busy || !stats.nonEmpty}
           className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-bold text-white hover:bg-indigo-500 disabled:opacity-40"
         >
-          {busy ? '处理中…' : isTts && project?.status !== 'completed' ? '确认并继续配音' : '保存并重对齐'}
+          {busy && <Loader2 size={13} className="mr-1 inline animate-spin" />}
+          {isTts ? '确认并开始配音' : '保存并重对齐'}
         </button>
       </footer>
     </div>

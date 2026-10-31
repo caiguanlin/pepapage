@@ -216,11 +216,11 @@ export default function CreateBookDialog({ open, folderId, onClose, onCreated }:
     if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId)
   }
 
-  const sectionTitle = (no: string, text: string, required?: boolean) => (
+  // 分组标题照原版 dk 组件（index-CpWPkl9w.js 3639757）：编号 + 标题，无必填标记
+  const sectionTitle = (no: string, text: string) => (
     <div className="mb-2 flex items-center gap-1 text-xs font-bold text-slate-500">
       <span className="text-emerald-600">{no}</span>
       {text}
-      {required && <span className="text-rose-500">*</span>}
     </div>
   )
 
@@ -300,21 +300,30 @@ export default function CreateBookDialog({ open, folderId, onClose, onCreated }:
               ) : book ? (
                 <span className="text-slate-700">{book.name}</span>
               ) : (
-                <>
-                  书籍文件（PDF / 图片）<span className="text-rose-500">*</span>
-                </>
+                // 必填标记照原版 DJ 组件（3640126）：标签右侧灰色小字
+                <span>
+                  书籍文件（PDF / 图片）<span className="ml-1 text-[10px] text-slate-400">必填</span>
+                </span>
               )}
             </button>
             {!composing && bookNote && <p className="mt-1 text-xs text-emerald-600">{bookNote}</p>}
-            {!book && !composing && <p className="mt-1 text-xs text-slate-400">可多选图片，将按文件名自然排序合成 PDF</p>}
+            {!book && !composing && <p className="mt-1 text-xs text-slate-400">PDF 或多选图片（自动按顺序合成）</p>}
           </section>
 
           <section>
-            {sectionTitle('03', mode === 'tts' ? '配音设置' : '音频', mode !== 'tts')}
+            {/* 03 标题照原版（3653366 单音频 / 3657566 多音频 / 3652441 TTS） */}
+            {sectionTitle('03', mode === 'single' ? '音频与识别模型' : mode === 'tts' ? '自动配音' : '音频文件')}
             {mode === 'single' && (
               <div className="space-y-2">
                 <label className={dropzone}>
-                  {audio ? <span className="text-slate-700">{audio.name}</span> : '整书音频（必填）'}
+                  {audio ? (
+                    <span className="text-slate-700">{audio.name}</span>
+                  ) : (
+                    // 标签与必填标记照原版（3653424）。原版 DJ 的默认说明"点击右侧按钮选择文件"不照搬：复刻这里整块可点，没有右侧按钮
+                    <span>
+                      音频文件（整书朗读）<span className="ml-1 text-[10px] text-slate-400">必填</span>
+                    </span>
+                  )}
                   <input type="file" accept="audio/*" hidden disabled={busy} onChange={(e) => setAudio(e.target.files?.[0] ?? null)} />
                 </label>
                 <div className="grid grid-cols-2 gap-2">
@@ -357,9 +366,15 @@ export default function CreateBookDialog({ open, folderId, onClose, onCreated }:
                 <div className="flex gap-2">
                   <label className={`${dropzone} flex-1`}>
                     {multiAudios.length === 0 ? (
-                      '音频文件（至少 1 个）'
+                      // 标签与必填标记照原版多音频字段（3656228 附近）
+                      <span>
+                        音频文件（可多选）<span className="ml-1 text-[10px] text-slate-400">必填</span>
+                      </span>
                     ) : (
                       <span className="text-slate-700">
+                        <span className="mr-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700">
+                          已选 {sortedMulti.length} 个
+                        </span>
                         {sortedMulti
                           .slice(0, 3)
                           .map((f) => f.name)
@@ -388,12 +403,21 @@ export default function CreateBookDialog({ open, folderId, onClose, onCreated }:
                         setMultiAudios([])
                       }}
                       className="px-2 text-xs text-slate-500 hover:text-rose-500"
+                      title="清空已选音频"
                     >
                       清空
                     </button>
                   )}
                 </div>
                 <p className="mt-1 text-xs text-slate-400">每个文件对应一个码点，如每页/每句一段 mp3</p>
+                {/* 绿色"手动铺码"提示照原版（3657566 附近），文字逐字照抄 */}
+                <div className="flex items-start gap-2 rounded-lg border border-emerald-100 bg-emerald-50/50 px-3 py-2">
+                  <Sparkles size={12} className="mt-0.5 shrink-0 text-emerald-500" />
+                  <p className="text-[10px] leading-relaxed text-emerald-700">
+                    创建后在「辅码 → 手动铺码」里：点击音频试听，把音频拖到书页位置（或在页面上划出区域）即完成该处铺码 ·{' '}
+                    <span className="font-bold">免识别 · 免费</span>
+                  </p>
+                </div>
                 {sortedMulti.length > 0 && (
                   <ul className="mt-2 max-h-36 space-y-1 overflow-y-auto rounded-lg border border-slate-100 p-1">
                     {sortedMulti.map((f, i) => (
@@ -410,36 +434,48 @@ export default function CreateBookDialog({ open, folderId, onClose, onCreated }:
               </>
             )}
             {mode === 'tts' && (
-              <div className="space-y-3">
-                <select
-                  value={voice}
-                  disabled={busy}
-                  onChange={(e) => setVoice(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                >
-                  {Object.entries(VOICES).map(([group, list]) => (
-                    <optgroup key={group} label={group}>
-                      {list.map((v) => (
-                        <option key={v} value={v}>
-                          {group} · {v}
-                        </option>
+              // 结构与样式照原版（3652441 起）：合成音色两组按钮 + 语速滑条包在白卡里，绿色提示在卡外
+              <div className="space-y-2">
+                <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-3">
+                  <div>
+                    <span className="mb-1.5 block text-[11px] font-bold text-slate-500">合成音色（英文）</span>
+                    <div className="space-y-1.5">
+                      {Object.entries(VOICES).map(([group, list]) => (
+                        <div key={group} className="flex flex-wrap items-center gap-1.5">
+                          <span className="w-8 shrink-0 text-[9px] font-bold uppercase tracking-wider text-slate-400">{group}</span>
+                          {list.map((v) => (
+                            <button
+                              key={v}
+                              type="button"
+                              disabled={busy}
+                              onClick={() => setVoice(v)}
+                              className={`rounded-md border px-2 py-1 text-[10px] font-bold transition-all ${
+                                voice === v
+                                  ? 'border-emerald-500 bg-emerald-500 text-white'
+                                  : 'border-slate-200 bg-white text-slate-500 hover:border-emerald-300'
+                              }`}
+                            >
+                              {v}
+                            </button>
+                          ))}
+                        </div>
                       ))}
-                    </optgroup>
-                  ))}
-                </select>
-                <div className="flex items-center gap-3 text-sm">
-                  <span className="text-slate-500">语速</span>
-                  <input
-                    type="range"
-                    min={0.5}
-                    max={1.5}
-                    step={0.1}
-                    value={speed}
-                    disabled={busy}
-                    onChange={(e) => setSpeed(Number(e.target.value))}
-                    className="flex-1 accent-emerald-600"
-                  />
-                  <span className="w-10 text-right font-mono">{speed.toFixed(1)}x</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 border-t border-slate-100 pt-2.5">
+                    <span className="shrink-0 text-[11px] font-bold text-slate-500">语速</span>
+                    <input
+                      type="range"
+                      min={0.5}
+                      max={1.5}
+                      step={0.1}
+                      value={speed}
+                      disabled={busy}
+                      onChange={(e) => setSpeed(Number(e.target.value))}
+                      className="flex-1 accent-emerald-500"
+                    />
+                    <span className="w-9 text-right text-[11px] font-bold tabular-nums text-slate-800">{speed.toFixed(1)}x</span>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2 rounded-lg border border-emerald-100 bg-emerald-50/50 px-3 py-2">
                   <Sparkles size={12} className="shrink-0 text-emerald-500" />

@@ -59,7 +59,7 @@ ProjectStatus 增加 `awaiting_review`? —— 不增加。tts 等待校对的�
 
 Redis Stream 消息 `{taskId, taskType}`；taskType：`book_full`、`book_realign`、`book_tts`、`book_export`。worker 直接用 oss2 读写项目文件（配置同 server，写在 worker/.env）。进度回调用现有 `/internal/tasks/{taskId}/progress`；导出任务回调 `/internal/exports/{exportId}/progress`（server 新增，字段 status/progress/error/fileName）。`/internal/tasks/{taskId}` 详情增加 `ossPrefix`。
 
-处理要求：不伪造成功；真实 PDF 渲染（pymupdf）、真实 OCR（rapidocr-onnxruntime）、音频转换（PyAV 或 imageio-ffmpeg 自带 ffmpeg）、ASR（faster-whisper，模型可配）、对齐、TTS（本机可用引擎，如 Windows SAPI/pyttsx3 或 kokoro-onnx，英文），点读 ZIP/PDF 导出（PyMuPDF 生成内容 PDF + 码点层，pydub/av 剪辑 mp3）。
+处理要求：不伪造成功；真实 PDF 渲染（pymupdf）、真实 OCR（rapidocr-onnxruntime）、音频转换（PyAV 或 imageio-ffmpeg 自带 ffmpeg）、ASR（faster-whisper，模型可配）、对齐、TTS（KittenTTS 0.8 micro ONNX 模型，目录由 `KITTEN_MODEL_DIR` 指定，8 个英文声线，输出 24 kHz 16 位单声道 WAV；缺模型或音素库时报错，不回退到 SAPI），点读 ZIP/PDF 导出（PyMuPDF 生成内容 PDF + 码点层，pydub/av 剪辑 mp3）。
 
 ## 4. 前端路由（pepapage-web）
 

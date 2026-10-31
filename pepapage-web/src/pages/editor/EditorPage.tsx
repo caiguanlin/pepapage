@@ -12,6 +12,7 @@ import TrackPanel from './TrackPanel'
 import SettingsPanel, { type Tool } from './SettingsPanel'
 import ExportPanel from './ExportPanel'
 import RecognizedTextPanel, { type RecognizedState } from './RecognizedTextPanel'
+import AudioLibrary from './AudioLibrary'
 import {
   FILES,
   HANDLES,
@@ -19,6 +20,7 @@ import {
   buildBoxes,
   clampBox,
   clampRepeat,
+  customCrop,
   effectiveRange,
   loadEditorData,
   newRegion,
@@ -132,6 +134,8 @@ function EntrySticker({
 }
 
 const fileLabel = (n: string) => n.split('/').pop() ?? n
+/** 同一自定义音源可被多个框复用，只有没有框再引用时才删除文件 */
+const fileInUse = (entries: EditorData['customAudio']['entries'], fileName: string) => Object.values(entries).some((e) => e?.fileName === fileName)
 const isTyping = (t: EventTarget | null) =>
   t instanceof HTMLElement && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)
 
@@ -149,7 +153,8 @@ export default function EditorPage() {
   const [tool, setTool] = useState<Tool>('select')
   const [zoom, setZoom] = useState(1)
   const [drag, setDrag] = useState<Drag | null>(null)
-  const [clip, setClip] = useState<{ start: number; end: number } | null>(null)
+  /** 复制的区间；src 为音源文件名（共享音轨为空串），只能粘贴到同一音源 */
+  const [clip, setClip] = useState<{ start: number; end: number; src: string } | null>(null)
   const [urls, setUrls] = useState<Record<string, string | null>>({})
   const [sharedUrl, setSharedUrl] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -281,7 +286,11 @@ export default function EditorPage() {
         const rid = b.key.slice(7)
         const fileName = data?.customAudio.entries[b.key]?.fileName
         update((d) => removeKeyArtifacts({ ...d, customCodes: { regions: d.customCodes.regions.filter((r) => r.id !== rid) } }, b.key))
-        if (fileName) projectFilesApi.remove(id, fileName).catch(() => {})
+        if (fileName && data) {
+          const rest = { ...data.customAudio.entries }
+          delete rest[b.key]
+          if (!fileInUse(rest, fileName)) projectFilesApi.remove(id, fileName).catch(() => {})
+        }
         setSelKey(null)
         return
       }
@@ -456,7 +465,11 @@ export default function EditorPage() {
   }, [trackAudioName, resolveUrl])
   const trackUrl = !sel ? null : trackAudioName ? (urls[trackAudioName] ?? null) : mode === 'single' ? sharedUrl : null
   const editableRange = !!sel && mode === 'single' && !customAudio
-  const range = sel && data && editableRange ? effectiveRange(data, sel) : null
+  // 自定义音源可裁剪：区间是相对该文件的 start/end，未裁剪为 null（整段播放）
+  const crop = customAudio && customCrop(customAudio)[0]
+  const range = !sel || !data ? null : customAudio ? (crop ? { ...crop, manual: true } : null) : editableRange ? effectiveRange(data, sel) : null
+  const clipSrc = customAudio?.fileName ?? ''
+  const canPaste = !!clip && clip.src === clipSrc && (editableRange || !!customAudio)
 
   const neighbor = (dir: -1 | 1) => {
     if (!sel || sel.kind !== 'sentence' || !data) return null
@@ -472,6 +485,15 @@ export default function EditorPage() {
     if (!sel) return
     const s = Math.round(start * 1000) / 1000
     const en = Math.round(end * 1000) / 1000
+    if (customAudio) {
+      // 自定义音源的裁剪写在 book-custom-audio.json 对应条目上，随「保存」写入
+      update((d) => {
+        const e = d.customAudio.entries[sel.key]
+        if (!e) return d
+        return { ...d, customAudio: { version: 1, entries: { ...d.customAudio.entries, [sel.key]: { ...e, start: s, end: en, updatedAt: new Date().toISOString() } } } }
+      })
+      return
+    }
     update((d) => ({
       ...d,
       alignment: {
@@ -491,6 +513,17 @@ export default function EditorPage() {
   }
   const resetRange = () => {
     if (!sel) return
+    if (customAudio) {
+      update((d) => {
+        const e = d.customAudio.entries[sel.key]
+        if (!e) return d
+        const next = { ...e, updatedAt: new Date().toISOString() }
+        delete next.start
+        delete next.end
+        return { ...d, customAudio: { version: 1, entries: { ...d.customAudio.entries, [sel.key]: next } } }
+      })
+      return
+    }
     update((d) => {
       const m = { ...(d.alignment.manualRanges ?? {}) }
       delete m[sel.key]
@@ -531,7 +564,7 @@ export default function EditorPage() {
         entries: { ...data.customAudio.entries, [sel.key]: { fileName, originalName: f.name, updatedAt: new Date().toISOString() } },
       }
       await persistCustomAudio(next)
-      if (old && old !== fileName) projectFilesApi.remove(id, old).catch(() => {})
+      if (old && old !== fileName && !fileInUse(next.entries, old)) projectFilesApi.remove(id, old).catch(() => {})
       setUrls((m) => {
         const c = { ...m }
         delete c[fileName]
@@ -553,7 +586,7 @@ export default function EditorPage() {
       const entries = { ...data.customAudio.entries }
       delete entries[sel.key]
       await persistCustomAudio({ version: 1, entries })
-      await projectFilesApi.remove(id, old.fileName).catch(() => {})
+      if (!fileInUse(entries, old.fileName)) await projectFilesApi.remove(id, old.fileName).catch(() => {})
       setNotice('已恢复原音源')
     } catch (e) {
       setNotice(`操作失败：${(e as Error).message}`)
@@ -561,6 +594,41 @@ export default function EditorPage() {
       setBusy(false)
     }
   }
+  /** 右栏「音频」复用已导入的音源：绑定后整段播放，再在音轨面板拖动手柄裁剪。与上传一样立即写入 */
+  const reuseAudio = async (fileName: string, originalName: string) => {
+    if (!sel || !data) return
+    const old = data.customAudio.entries[sel.key]?.fileName
+    if (old === fileName) return
+    setBusy(true)
+    try {
+      const next = {
+        version: 1 as const,
+        entries: { ...data.customAudio.entries, [sel.key]: { fileName, originalName, updatedAt: new Date().toISOString() } },
+      }
+      await persistCustomAudio(next)
+      if (old && !fileInUse(next.entries, old)) projectFilesApi.remove(id, old).catch(() => {})
+      setNotice('已使用该音源，可在音轨拖动手柄裁剪')
+    } catch (e) {
+      setNotice(`操作失败：${(e as Error).message}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // 右栏「音频」：已导入的自定义音源按文件去重，统计被几个框使用
+  const library = useMemo(() => {
+    const m = new Map<string, { fileName: string; name: string; uses: number }>()
+    for (const e of Object.values(data?.customAudio.entries ?? {})) {
+      if (!e?.fileName) continue
+      const it = m.get(e.fileName)
+      if (it) it.uses++
+      else m.set(e.fileName, { fileName: e.fileName, name: e.originalName || fileLabel(e.fileName), uses: 1 })
+    }
+    return [...m.values()]
+  }, [data?.customAudio])
+  useEffect(() => {
+    if (mode === 'single') library.forEach((f) => resolveUrl(f.fileName))
+  }, [library, mode, resolveUrl])
 
   // ---------- 快捷键 ----------
   useEffect(() => {
@@ -571,9 +639,9 @@ export default function EditorPage() {
         e.preventDefault()
         save().catch(() => {})
       } else if (mod && e.key.toLowerCase() === 'c' && range) {
-        setClip({ start: range.start, end: range.end })
+        setClip({ start: range.start, end: range.end, src: clipSrc })
         setNotice('已复制区间')
-      } else if (mod && e.key.toLowerCase() === 'v' && clip && editableRange) {
+      } else if (mod && e.key.toLowerCase() === 'v' && clip && canPaste) {
         setRange(clip.start, clip.end)
       } else if ((e.key === 'Delete' || e.key === 'Backspace') && sel) {
         e.preventDefault()
@@ -862,7 +930,8 @@ export default function EditorPage() {
                 title={sel.text || sel.key}
                 audioUrl={trackUrl}
                 range={range}
-                editableRange={editableRange}
+                editableRange={editableRange || !!customAudio}
+                wholeFile={!!customAudio}
                 prevEnd={neighbor(-1)}
                 nextStart={neighbor(1)}
                 excluded={excluded.has(sel.key)}
@@ -873,9 +942,9 @@ export default function EditorPage() {
                 busy={busy}
                 onRange={setRange}
                 onResetRange={resetRange}
-                onCopy={() => range && setClip({ start: range.start, end: range.end })}
-                onPaste={() => clip && setRange(clip.start, clip.end)}
-                canPaste={!!clip && editableRange}
+                onCopy={() => range && setClip({ start: range.start, end: range.end, src: clipSrc })}
+                onPaste={() => clip && canPaste && setRange(clip.start, clip.end)}
+                canPaste={canPaste}
                 onToggleExclude={() => toggleExclude(sel.key)}
                 onToggleEntry={() => toggleEntry(sel.key)}
                 onRepeat={setRepeat}
@@ -892,6 +961,19 @@ export default function EditorPage() {
               audioUrl={sharedUrl}
               selection={sel ? { key: sel.key, range: range && { start: range.start, end: range.end }, editable: editableRange } : null}
               onRange={(s, e) => editableRange && setRange(s, e)}
+              audioCount={library.length}
+              audioTab={
+                <AudioLibrary
+                  items={[
+                    { fileName: '', name: project?.audioFiles?.[0]?.originalName ?? '原书音频', url: sharedUrl },
+                    ...library.map((f) => ({ ...f, url: urls[f.fileName] ?? null })),
+                  ]}
+                  current={sel ? (customAudio?.fileName ?? '') : null}
+                  busy={busy}
+                  onUse={(it) => (it.fileName ? reuseAudio(it.fileName, it.name) : removeAudio())}
+                  onUpload={uploadAudio}
+                />
+              }
             />
           )}
         </div>

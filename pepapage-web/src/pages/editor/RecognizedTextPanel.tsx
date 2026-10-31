@@ -1,8 +1,9 @@
 // single 右栏「识别文字」（UI 规格 7.5，截图 analysis/screenshots/09、11）：按字幕行分组显示词，选中框时高亮区间内的词。
 // 点词行为以截图 11 的提示为准：未选框时点词试听；选中可编辑框后，点区间外的词把首/末扩展到该词，
 // 点首/末词把它从区间里去掉（向内收缩），成功即写入音频区间；「清空」去掉高亮，下一次点词从该词重新开始。
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Loader2, Mic, PanelRightClose, PanelRightOpen } from 'lucide-react'
+// 「音频」页签由 EditorPage 传入（AudioLibrary），用于复用已导入的音源再裁剪。
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Loader2, Mic, Music, PanelRightClose, PanelRightOpen } from 'lucide-react'
 import type { AnalysisLine, AnalysisLineWord } from '../../api/editorTypes'
 
 export type RecognizedState = { status: 'loading' } | { status: 'error' } | { status: 'ready'; lines: AnalysisLine[] }
@@ -14,6 +15,9 @@ interface Props {
   /** 当前选中框：range 为有效区间（未匹配为 null），editable 对应编辑器的 editableRange */
   selection: { key: string; range: { start: number; end: number } | null; editable: boolean } | null
   onRange: (start: number, end: number) => void
+  /** 「音频」页签内容与音频个数 */
+  audioTab?: ReactNode
+  audioCount?: number
 }
 
 const MIN_RANGE = 0.01
@@ -28,8 +32,9 @@ function fmt(t: number) {
 
 const hasTime = (w: AnalysisLineWord) => Number.isFinite(w.start) && Number.isFinite(w.end) && w.start >= 0 && w.end > w.start
 
-export default function RecognizedTextPanel({ state, audioUrl, selection, onRange }: Props) {
+export default function RecognizedTextPanel({ state, audioUrl, selection, onRange, audioTab, audioCount }: Props) {
   const [collapsed, setCollapsed] = useState(false)
+  const [tab, setTab] = useState<'text' | 'audio'>('text')
   const [cleared, setCleared] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
@@ -131,16 +136,33 @@ export default function RecognizedTextPanel({ state, audioUrl, selection, onRang
   const hint = !selection
     ? '点击单词可试听；点击 PDF 线框后，在此处选首词与末词即可设定音频区间'
     : disabled
-      ? '该区域使用自定义音源整段播放，不能按词设定区间；点击单词可试听'
+      ? '该区域使用自定义音源，不能按词设定区间，请在底部音轨拖动手柄裁剪；点击单词可试听'
       : '点区间外的词扩展首/末，点首/末词取消收缩；成功即写入音频区间'
 
   return (
     <aside className="flex w-56 shrink-0 flex-col border-l border-[#e8e4dc] bg-[#faf9f6]">
       <div className="flex items-center gap-2 px-3 py-3">
-        <Mic size={13} className="text-slate-400" />
-        <span className="flex-1 text-xs font-bold text-slate-500">识别文字</span>
-        {state.status === 'ready' && <span className="text-[11px] text-slate-400">{flat.length} 词</span>}
-        {selection?.editable && (
+        {audioTab ? (
+          <div className="flex flex-1 items-center gap-2 text-xs font-bold">
+            {(['text', 'audio'] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={`flex items-center gap-1 border-b-2 pb-0.5 ${tab === t ? 'border-indigo-500 text-slate-700' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
+              >
+                {t === 'text' ? <Mic size={13} /> : <Music size={13} />}
+                {t === 'text' ? '识别文字' : `音频${audioCount ? ` ${audioCount}` : ''}`}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <>
+            <Mic size={13} className="text-slate-400" />
+            <span className="flex-1 text-xs font-bold text-slate-500">识别文字</span>
+          </>
+        )}
+        {tab === 'text' && state.status === 'ready' && <span className="text-[11px] text-slate-400">{flat.length} 词</span>}
+        {tab === 'text' && selection?.editable && (
           <button onClick={() => setCleared(true)} disabled={lo < 0} className="text-[11px] text-slate-400 hover:text-slate-700 disabled:opacity-40" title="清空当前词选择，下次点词重新开始">
             清空
           </button>
@@ -149,7 +171,8 @@ export default function RecognizedTextPanel({ state, audioUrl, selection, onRang
           <PanelRightClose size={15} />
         </button>
       </div>
-      <div ref={listRef} className={`min-h-0 flex-1 overflow-y-auto px-3 pb-3 ${disabled ? 'opacity-60' : ''}`}>
+      {tab === 'audio' && audioTab}
+      <div ref={listRef} className={`min-h-0 flex-1 overflow-y-auto px-3 pb-3 ${disabled ? 'opacity-60' : ''} ${tab === 'audio' ? 'hidden' : ''}`}>
         {state.status === 'loading' && (
           <div className="flex items-center gap-1 text-xs text-slate-400">
             <Loader2 size={13} className="animate-spin" /> 加载中…
@@ -185,7 +208,9 @@ export default function RecognizedTextPanel({ state, audioUrl, selection, onRang
           </div>
         ))}
       </div>
-      <div className="border-t border-[#e8e4dc] px-3 py-2 text-[10px] leading-4 text-slate-400">{hint}</div>
+      <div className="border-t border-[#e8e4dc] px-3 py-2 text-[10px] leading-4 text-slate-400">
+        {tab === 'audio' ? '选中框后点「使用」绑定音源，再在底部音轨拖动蓝色手柄裁剪；同一音频可给多个框各自裁剪' : hint}
+      </div>
       <audio ref={audioRef} preload="none" onPause={() => cancelAnimationFrame(raf.current)} />
     </aside>
   )

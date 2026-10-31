@@ -124,6 +124,9 @@ export interface CustomAudioEntry {
   fileName: string
   originalName: string
   updatedAt: string
+  /** 可选裁剪（秒，相对该文件）；缺省时整段播放。同一文件可被多个框复用、各自裁剪 */
+  start?: number
+  end?: number
 }
 
 export interface BookCustomAudio {

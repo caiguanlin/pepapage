@@ -259,12 +259,21 @@ function cleanSegments(segs: { start?: unknown; end?: unknown }[]): Seg[] {
 /** Python f"{x:.3f}"；仅在恰好落在 .0005 的二进制精确值上与 toFixed 的进位方向可能不同。 */
 const fmt3 = (v: number) => v.toFixed(3)
 
+const rangesKey = (segs: Seg[]) => 'ranges:' + segs.map((s) => `${fmt3(s.start)}-${fmt3(s.end)}`).join(';')
+
 function audioKey(audio: PlanAudio, repeat: number): string | null {
   let key: string
-  if (audio.sourceFile) key = `file:${audio.sourceFile}`
-  else if (audio.segments.length) key = 'ranges:' + audio.segments.map((s) => `${fmt3(s.start)}-${fmt3(s.end)}`).join(';')
+  // 同一文件的不同裁剪是不同音频，须分到不同码值
+  if (audio.sourceFile) key = `file:${audio.sourceFile}` + (audio.segments.length ? `@${rangesKey(audio.segments)}` : '')
+  else if (audio.segments.length) key = rangesKey(audio.segments)
   else return null
   return key + (repeat > 1 ? `|x${repeat}` : '')
+}
+
+/** 自定义音源的可选裁剪 start/end（秒，相对该文件）；缺省或无效时整段播放。 */
+export function customCrop(e: { start?: unknown; end?: unknown } | undefined): Seg[] {
+  if (!e || typeof e.start !== 'number' || typeof e.end !== 'number') return []
+  return cleanSegments([{ start: e.start, end: e.end }])
 }
 
 const padBox = (b: Box, pad: number): Box => ({ x: b.x - pad, y: b.y - pad, width: b.width + 2 * pad, height: b.height + 2 * pad })
@@ -320,7 +329,7 @@ export function planCodes(audioMode: string, d: EditorData): CodePlan {
   const add = (key: string, page: number, box: Box | null | undefined, audio: PlanAudio | null, members: string[], priority = 1, custom = false) => {
     if (excluded.has(key) || !box || !page) return false
     box = overrides[key] || box
-    if (customEntries[key]?.fileName) audio = { sourceFile: customEntries[key].fileName, segments: [] }
+    if (customEntries[key]?.fileName) audio = { sourceFile: customEntries[key].fileName, segments: customCrop(customEntries[key]) }
     else if (key in manual) {
       const m = manual[key]
       audio = { segments: cleanSegments([{ start: m.start ?? -1, end: m.end ?? -1 }]) }

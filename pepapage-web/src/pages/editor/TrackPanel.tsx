@@ -45,6 +45,8 @@ export interface TrackPanelProps {
   /** 可编辑区间（single 有共享音轨；multi/tts/自定义为整段文件） */
   range: { start: number; end: number; manual: boolean } | null
   editableRange: boolean
+  /** 自定义音源：range 为 null 表示整段，手柄落在 0 与时长处，拖动即裁剪 */
+  wholeFile?: boolean
   prevEnd?: number | null
   nextStart?: number | null
   excluded: boolean
@@ -94,22 +96,25 @@ export default function TrackPanel(p: TrackPanelProps) {
     }
   }, [p.audioUrl])
 
+  const duration = wave?.duration ?? 0
+  // 显示与拖动用的区间：自定义音源未裁剪时取整段
+  const r = p.range ?? (p.wholeFile && duration ? { start: 0, end: duration, manual: false } : null)
+
   // 选中范围变化时聚焦视窗
   useEffect(() => {
-    setStartText(p.range ? p.range.start.toFixed(3) : '')
-    setEndText(p.range ? p.range.end.toFixed(3) : '')
-  }, [p.range?.start, p.range?.end])
+    setStartText(r ? r.start.toFixed(3) : '')
+    setEndText(r ? r.end.toFixed(3) : '')
+  }, [r?.start, r?.end])
 
-  const duration = wave?.duration ?? 0
   const focusView = () => {
     if (!duration) return
-    if (p.range && p.editableRange) {
-      const len = Math.max(MIN_VIEW, p.range.end - p.range.start)
+    if (r && p.editableRange) {
+      const len = Math.max(MIN_VIEW, r.end - r.start)
       const pad = len * 0.5
-      setView({ a: Math.max(0, p.range.start - pad), b: Math.min(duration, p.range.end + pad) })
+      setView({ a: Math.max(0, r.start - pad), b: Math.min(duration, r.end + pad) })
     } else setView({ a: 0, b: duration })
   }
-  useEffect(focusView, [duration, p.range?.start, p.range?.end, p.audioUrl])
+  useEffect(focusView, [duration, r?.start, r?.end, p.audioUrl])
 
   // 绘制波形；面板收起再展开时 canvas 会重新挂载，collapsed 变化也要重画
   useEffect(() => {
@@ -124,9 +129,9 @@ export default function TrackPanel(p: TrackPanelProps) {
     ctx.scale(dpr, dpr)
     ctx.clearRect(0, 0, w, h)
     const toX = (t: number) => ((t - view.a) / (view.b - view.a)) * w
-    if (p.range && p.editableRange) {
+    if (r && p.editableRange) {
       ctx.fillStyle = p.excluded ? 'rgba(148,163,184,.25)' : 'rgba(99,102,241,.18)'
-      ctx.fillRect(toX(p.range.start), 0, toX(p.range.end) - toX(p.range.start), h)
+      ctx.fillRect(toX(r.start), 0, toX(r.end) - toX(r.start), h)
     }
     ctx.fillStyle = '#64748b'
     for (let x = 0; x < w; x++) {
@@ -135,16 +140,18 @@ export default function TrackPanel(p: TrackPanelProps) {
       const v = wave.peaks[i] * (h / 2 - 2)
       ctx.fillRect(x, h / 2 - v, 1, Math.max(1, v * 2))
     }
-    if (p.range && p.editableRange) {
+    if (r && p.editableRange) {
       ctx.fillStyle = '#4f46e5'
-      ctx.fillRect(toX(p.range.start) - 1, 0, 2, h)
-      ctx.fillRect(toX(p.range.end) - 1, 0, 2, h)
+      ctx.fillRect(toX(r.start) - 1, 0, 2, h)
+      ctx.fillRect(toX(r.end) - 1, 0, 2, h)
     }
     if (cursor != null) {
       ctx.fillStyle = '#ef4444'
       ctx.fillRect(toX(cursor), 0, 1, h)
     }
-  }, [wave, view, p.range, p.editableRange, p.excluded, cursor, collapsed])
+    // r 每次渲染可能是新对象，按起止值比较
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wave, view, r?.start, r?.end, p.editableRange, p.excluded, cursor, collapsed])
 
   const timeAt = (clientX: number) => {
     const c = canvasRef.current!
@@ -160,18 +167,18 @@ export default function TrackPanel(p: TrackPanelProps) {
     const t = timeAt(e.clientX)
     const tol = ((view.b - view.a) / c.clientWidth) * 6
     let mode: 'start' | 'end' | 'pan' | 'seek' = e.shiftKey || e.button === 1 ? 'pan' : 'seek'
-    if (p.range && p.editableRange) {
-      if (Math.abs(t - p.range.start) < tol) mode = 'start'
-      else if (Math.abs(t - p.range.end) < tol) mode = 'end'
+    if (r && p.editableRange) {
+      if (Math.abs(t - r.start) < tol) mode = 'start'
+      else if (Math.abs(t - r.end) < tol) mode = 'end'
     }
     dragRef.current = { mode, x0: e.clientX, view0: view }
   }
   const onMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const d = dragRef.current
-    if (!d || !p.range) return
+    if (!d || !r) return
     const t = Math.max(0, Math.min(duration, timeAt(e.clientX)))
-    if (d.mode === 'start') p.onRange(Math.min(t, p.range.end - 0.01), p.range.end)
-    else if (d.mode === 'end') p.onRange(p.range.start, Math.max(t, p.range.start + 0.01))
+    if (d.mode === 'start') p.onRange(Math.min(t, r.end - 0.01), r.end)
+    else if (d.mode === 'end') p.onRange(r.start, Math.max(t, r.start + 0.01))
     else if (d.mode === 'pan') {
       const dt = ((d.x0 - e.clientX) / e.currentTarget.clientWidth) * (d.view0.b - d.view0.a)
       const len = d.view0.b - d.view0.a
@@ -222,8 +229,8 @@ export default function TrackPanel(p: TrackPanelProps) {
     const n = p.playSignal ?? 0
     if (n <= handledSignal.current || !p.audioUrl) return
     handledSignal.current = n
-    // 未匹配的句子没有区间，不从头播放整段音频
-    if (p.editableRange && !p.range) return
+    // 未匹配的句子没有区间，不从头播放整段音频；自定义音源未裁剪时整段播放
+    if (p.editableRange && !p.range && !p.wholeFile) return
     startAudition()
     // 只响应新的点击信号与音频地址就绪
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -254,22 +261,25 @@ export default function TrackPanel(p: TrackPanelProps) {
   }
 
   const commit = (which: 'start' | 'end') => {
-    if (!p.range) return
-    const v = Number(which === 'start' ? startText : endText)
+    if (!r) return
+    const text = which === 'start' ? startText : endText
+    // 输入框显示的是 toFixed(3)，未改动就失焦不写入（否则整段音源会被按舍入后的时长裁剪）
+    if (text === (which === 'start' ? r.start : r.end).toFixed(3)) return
+    const v = Number(text)
     if (!Number.isFinite(v)) return
     const max = duration || Infinity
-    let s = which === 'start' ? v : p.range.start
-    let e = which === 'end' ? v : p.range.end
+    let s = which === 'start' ? v : r.start
+    let e = which === 'end' ? v : r.end
     s = Math.max(0, Math.min(max, s))
     e = Math.max(0, Math.min(max, e))
     if (e <= s) return
     p.onRange(s, e)
   }
   const nudge = (which: 'start' | 'end', d: number) => {
-    if (!p.range) return
+    if (!r) return
     const max = duration || Infinity
-    if (which === 'start') p.onRange(Math.max(0, Math.min(p.range.end - 0.01, p.range.start + d)), p.range.end)
-    else p.onRange(p.range.start, Math.min(max, Math.max(p.range.start + 0.01, p.range.end + d)))
+    if (which === 'start') p.onRange(Math.max(0, Math.min(r.end - 0.01, r.start + d)), r.end)
+    else p.onRange(r.start, Math.min(max, Math.max(r.start + 0.01, r.end + d)))
   }
 
   const btn = 'flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-xs hover:bg-slate-50 disabled:opacity-40'
@@ -338,16 +348,18 @@ export default function TrackPanel(p: TrackPanelProps) {
                 onBlur={() => commit('start')}
                 onKeyDown={(e) => e.key === 'Enter' && commit('start')}
                 className="w-24 rounded border border-slate-200 px-1 py-0.5"
-                disabled={!p.range}
+                disabled={!r}
               />
               <button className={btn} onClick={() => nudge('start', NUDGE)}>+</button>
-              <button
-                className={btn}
-                disabled={p.prevEnd == null || !p.range}
-                onClick={() => p.range && p.prevEnd != null && p.prevEnd < p.range.end && p.onRange(p.prevEnd, p.range.end)}
-              >
-                上句尾
-              </button>
+              {!p.wholeFile && (
+                <button
+                  className={btn}
+                  disabled={p.prevEnd == null || !p.range}
+                  onClick={() => p.range && p.prevEnd != null && p.prevEnd < p.range.end && p.onRange(p.prevEnd, p.range.end)}
+                >
+                  上句尾
+                </button>
+              )}
               <span className="ml-3">结束</span>
               <button className={btn} onClick={() => nudge('end', -NUDGE)}>-</button>
               <input
@@ -359,27 +371,29 @@ export default function TrackPanel(p: TrackPanelProps) {
                 onBlur={() => commit('end')}
                 onKeyDown={(e) => e.key === 'Enter' && commit('end')}
                 className="w-24 rounded border border-slate-200 px-1 py-0.5"
-                disabled={!p.range}
+                disabled={!r}
               />
               <button className={btn} onClick={() => nudge('end', NUDGE)}>+</button>
-              <button
-                className={btn}
-                disabled={p.nextStart == null || !p.range}
-                onClick={() => p.range && p.nextStart != null && p.nextStart > p.range.start && p.onRange(p.range.start, p.nextStart)}
-              >
-                下句头
-              </button>
-              <button className={btn} onClick={p.onCopy} disabled={!p.range}>
+              {!p.wholeFile && (
+                <button
+                  className={btn}
+                  disabled={p.nextStart == null || !p.range}
+                  onClick={() => p.range && p.nextStart != null && p.nextStart > p.range.start && p.onRange(p.range.start, p.nextStart)}
+                >
+                  下句头
+                </button>
+              )}
+              <button className={btn} onClick={p.onCopy} disabled={!r}>
                 <Copy size={13} /> 复制
               </button>
               <button className={btn} onClick={p.onPaste} disabled={!p.canPaste}>
                 <ClipboardPaste size={13} /> 粘贴
               </button>
-              <button className={btn} onClick={p.onResetRange} disabled={!p.range?.manual}>
+              <button className={btn} onClick={p.onResetRange} disabled={!p.range?.manual} title={p.wholeFile ? '取消裁剪，整段播放' : undefined}>
                 <RotateCcw size={13} /> 重置
               </button>
               <button className={btn} onClick={focusView}>聚焦选择</button>
-              {!p.range && <span className="text-amber-600">该句未匹配到音频，可在波形上拖动设置区间后保存</span>}
+              {!r && !p.wholeFile && <span className="text-amber-600">该句未匹配到音频，可在波形上拖动设置区间后保存</span>}
             </div>
           )}
           <div className="relative h-20 rounded-md border border-slate-200 bg-slate-50">
@@ -394,7 +408,7 @@ export default function TrackPanel(p: TrackPanelProps) {
                   onWheel={onWheel}
                   onDoubleClick={(e) => {
                     // 双击空白：未有区间时以点击处建立 1 秒区间
-                    if (p.editableRange && !p.range) {
+                    if (p.editableRange && !r) {
                       const t = timeAt(e.clientX)
                       p.onRange(t, Math.min(duration, t + 1))
                     }
@@ -411,7 +425,12 @@ export default function TrackPanel(p: TrackPanelProps) {
           </div>
           <div className="text-[11px] text-slate-400">
             点击波形播放；拖动蓝色手柄调整起止；滚轮缩放；Shift+拖动平移。Ctrl+C / Ctrl+V 复制粘贴区间。
-            {p.customAudioName && <span className="ml-2 text-indigo-600">自定义音源：{p.customAudioName}（整段播放）</span>}
+            {p.customAudioName && (
+              <span className="ml-2 text-indigo-600">
+                自定义音源：{p.customAudioName}
+                {p.range ? `（已裁剪 ${p.range.start.toFixed(2)}–${p.range.end.toFixed(2)}s）` : '（整段播放，拖动手柄可裁剪）'}
+              </span>
+            )}
           </div>
         </div>
       )}

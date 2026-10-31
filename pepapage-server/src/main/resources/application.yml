@@ -53,5 +53,3 @@ pepapage:
     upload-expire-seconds: 900
     max-upload-mb: 1024
     download-expire-seconds: 3600
-  cors:
-    allowed-origins: http://localhost:5173

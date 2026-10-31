@@ -192,9 +192,6 @@ export default function AudioLibrary({ items, viewing, canUse, busy, onView, onU
           )
         })}
       </div>
-      <div className="border-t border-[#e8e4dc] px-3 py-2 text-[10px] leading-4 text-slate-400">
-        上传的音频单独识别，不改原书音频；点条目在「识别文字」列查看，选中框后点「使用」绑定，再在底部音轨拖动手柄裁剪
-      </div>
       <input
         ref={fileRef}
         type="file"

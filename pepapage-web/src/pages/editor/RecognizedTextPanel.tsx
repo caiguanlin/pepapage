@@ -174,7 +174,7 @@ export default function RecognizedTextPanel({ state, audioUrl, sourceName, selec
     )
 
   const hint = !selection
-    ? '未选中框：点击单词可试听。在 PDF 上选中框后，这里会切到该框的音源，点词/拖词即可设定区间'
+    ? null
     : sameSource
       ? '拖过多个词可直接选中；点区间外的词扩展首/末，点首/末词收缩；成功即写入音频区间，随「保存」写入'
       : '该框绑定的是其他音源：点一个词或拖一串词，会先把它改绑到正在查看的音源，再把区间设成这些词'
@@ -235,7 +235,7 @@ export default function RecognizedTextPanel({ state, audioUrl, sourceName, selec
           </div>
         ))}
       </div>
-      <div className="border-t border-[#e8e4dc] px-3 py-2 text-[10px] leading-4 text-slate-400">{hint}</div>
+      {hint && <div className="border-t border-[#e8e4dc] px-3 py-2 text-[10px] leading-4 text-slate-400">{hint}</div>}
       <audio ref={audioRef} preload="none" onPause={() => cancelAnimationFrame(raf.current)} />
     </aside>
   )

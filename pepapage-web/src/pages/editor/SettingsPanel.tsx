@@ -244,7 +244,6 @@ export default function SettingsPanel({ aux, audioMode, onChange, tool, onTool, 
         </Section>
 
         <Section id="manual" title="手动铺码" icon={<PenTool size={14} className="text-teal-600" />} open={open} onOpen={setOpen}>
-          <div className="text-[11px] leading-4 text-slate-400">给无文字的位置（图画、封面）铺码；选中区域后可在下方音轨面板微调音频区间。</div>
           <div className="flex gap-2">
             <button className={toolBtn('rect')} title="矩形" onClick={() => onTool(tool === 'rect' ? 'select' : 'rect')}>
               <Square size={18} />
@@ -252,9 +251,6 @@ export default function SettingsPanel({ aux, audioMode, onChange, tool, onTool, 
             <button className={toolBtn('ellipse')} title="圆形" onClick={() => onTool(tool === 'ellipse' ? 'select' : 'ellipse')}>
               <Circle size={18} />
             </button>
-          </div>
-          <div className="text-[11px] leading-4 text-slate-400">
-            点选形状后在页面上按住拖出大小，单击则放置默认尺寸（矩形 30×22mm、圆形 26×26mm）；Esc 取消。选中区域按 Delete 删除。
           </div>
         </Section>
 

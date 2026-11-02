@@ -25,3 +25,7 @@ analysis/runtime-20261030/*.nexusbookpkg
 *.iml
 .DS_Store
 Thumbs.db
+
+# Production secrets and deployment backups
+/deploy/*.env
+/deploy/backups/

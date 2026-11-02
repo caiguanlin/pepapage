@@ -6,7 +6,11 @@
 | `pepapage-web` | React 19 + Vite + TypeScript + Tailwind 4 + React Router 7 | 5173 |
 | `pepapage-worker` | Python 3.10，消费 Redis Stream 执行制作管线 | - |
 
-## 启动步骤
+## 生产部署
+
+生产环境用 Docker Compose 部署（镜像从 GHCR 拉取，不在服务器构建），见仓库根目录的 [docs/docker-deployment.md](../../docs/docker-deployment.md)。
+
+## 启动步骤（本地开发）
 
 1. 初始化数据库：在 MySQL 中执行 `pepapage-server/sql/schema.sql`。
 2. 复制 `pepapage-server/src/main/resources/application-local.yml.example` 为 `application-local.yml`，填 MySQL 密码、Redis 密码、OSS 配置。

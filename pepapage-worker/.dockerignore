@@ -1,0 +1,16 @@
+# 构建上下文瘦身：模型走 Dockerfile models 阶段固定下载，本地缓存/密钥一律不进镜像。
+# 注意 tests/ 不能排除：test 阶段 COPY tests/（runtime 阶段不 COPY 它，不会进运行镜像）。
+.git/
+.venv/
+.env
+models/
+tmp/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+# Windows 专用与开发工具，镜像内不需要
+start-worker.cmd
+tools/kitten_check.py
+tools/smoke.py
+tools/sync_env.py

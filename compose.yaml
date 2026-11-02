@@ -1,0 +1,138 @@
+name: pepapage
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-oss: &oss
+  OSS_ENDPOINT: ${OSS_ENDPOINT:?Set OSS_ENDPOINT}
+  OSS_BUCKET: ${OSS_BUCKET:?Set OSS_BUCKET}
+  OSS_ACCESS_KEY_ID: ${OSS_ACCESS_KEY_ID:?Set OSS_ACCESS_KEY_ID}
+  OSS_ACCESS_KEY_SECRET: ${OSS_ACCESS_KEY_SECRET:?Set OSS_ACCESS_KEY_SECRET}
+
+services:
+  web:
+    image: ${IMAGE_NAMESPACE:-ghcr.io/caiguanlin}/pepapage-web:${IMAGE_TAG:?Set an immutable IMAGE_TAG}
+    build:
+      context: ./pepapage-web
+    ports:
+      - "${WEB_BIND_IP:-127.0.0.1}:${WEB_PORT:-8088}:8080"
+    depends_on:
+      server:
+        condition: service_healthy
+    restart: unless-stopped
+    mem_limit: 128m
+    logging: *logging
+
+  server:
+    image: ${IMAGE_NAMESPACE:-ghcr.io/caiguanlin}/pepapage-server:${IMAGE_TAG:?Set an immutable IMAGE_TAG}
+    build:
+      context: ./pepapage-server
+    environment:
+      <<: *oss
+      SPRING_PROFILES_ACTIVE: prod
+      TZ: Asia/Shanghai
+      DB_URL: jdbc:mysql://mysql:3306/pepapage?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&sslMode=DISABLED&allowPublicKeyRetrieval=true
+      DB_USERNAME: pepapage
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET to at least 32 random bytes}
+      WORKER_TOKEN: ${WORKER_TOKEN:?Set WORKER_TOKEN}
+      JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:--XX:MaxRAMPercentage=70.0 -XX:+ExitOnOutOfMemoryError}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    mem_limit: ${SERVER_MEMORY_LIMIT:-1g}
+    stop_grace_period: 60s
+    logging: *logging
+
+  worker:
+    image: ${IMAGE_NAMESPACE:-ghcr.io/caiguanlin}/pepapage-worker:${IMAGE_TAG:?Set an immutable IMAGE_TAG}
+    build:
+      context: ./pepapage-worker
+    environment:
+      <<: *oss
+      TZ: Asia/Shanghai
+      SERVER_BASE_URL: http://server:8080
+      WORKER_TOKEN: ${WORKER_TOKEN:?Set WORKER_TOKEN}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD}
+      TASK_STREAM: pepapage:tasks
+      CONSUMER_GROUP: book-workers
+      CONSUMER_NAME: worker-1
+      KITTEN_MODEL_DIR: /models/kitten-tts-micro
+      WHISPER_MODEL: /models/faster-whisper-base
+      WHISPER_DEVICE: cpu
+      WHISPER_COMPUTE: int8
+      WHISPER_CPU_THREADS: ${WORKER_THREADS:-2}
+      WHISPER_LANGUAGE: ${WHISPER_LANGUAGE:-}
+      HF_HUB_OFFLINE: "1"
+      OMP_NUM_THREADS: ${WORKER_THREADS:-2}
+      OPENBLAS_NUM_THREADS: ${WORKER_THREADS:-2}
+      TMPDIR: /tmp
+    depends_on:
+      server:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    init: true
+    restart: unless-stopped
+    mem_limit: ${WORKER_MEMORY_LIMIT:-3g}
+    cpus: ${WORKER_CPUS:-2.0}
+    stop_grace_period: 30m
+    logging: *logging
+
+  mysql:
+    image: mysql:8.4
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci", "--innodb-buffer-pool-size=256M"]
+    environment:
+      TZ: Asia/Shanghai
+      MYSQL_DATABASE: pepapage
+      MYSQL_USER: pepapage
+      MYSQL_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD}
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./pepapage-server/sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_PASSWORD\" mysql --protocol=TCP -h 127.0.0.1 -u\"$$MYSQL_USER\" -D pepapage -e 'SELECT 1 FROM process_task LIMIT 1' >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+    restart: unless-stopped
+    mem_limit: ${MYSQL_MEMORY_LIMIT:-1g}
+    stop_grace_period: 60s
+    logging: *logging
+
+  redis:
+    image: redis:7.4-alpine
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD}
+    command:
+      - /bin/sh
+      - -ec
+      - exec redis-server --appendonly yes --appendfsync everysec --requirepass "$$REDIS_PASSWORD" --maxmemory 192mb --maxmemory-policy noeviction
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    mem_limit: 256m
+    stop_grace_period: 30s
+    logging: *logging
+
+volumes:
+  mysql-data:
+  redis-data:

@@ -9,6 +9,7 @@ import logging
 import os
 import signal
 import time
+from urllib.parse import quote
 
 import redis
 from dotenv import load_dotenv
@@ -24,6 +25,25 @@ BLOCK_MS = 5000
 SOCKET_TIMEOUT = 30
 
 
+def redis_url() -> str:
+    """连接串来源：REDIS_URL 优先；未设置时用 REDIS_HOST/REDIS_PORT/REDIS_PASSWORD/REDIS_DB 拼 URL；
+    两者都没有时保留原 localhost 开发默认。
+
+    密码按 RFC 3986 编码（safe='' 连 / 也转义），避免特殊字符破坏 URL 结构；DB 默认 0。
+    """
+    url = (os.getenv("REDIS_URL") or "").strip()
+    if url:
+        return url
+    host = (os.getenv("REDIS_HOST") or "").strip()
+    if not host:
+        return "redis://localhost:6379/0"
+    port = (os.getenv("REDIS_PORT") or "6379").strip()
+    db = (os.getenv("REDIS_DB") or "0").strip()
+    password = os.getenv("REDIS_PASSWORD") or ""
+    auth = f":{quote(password, safe='')}@" if password else ""
+    return f"redis://{auth}{host}:{port}/{db}"
+
+
 def main() -> None:
     load_dotenv()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -31,8 +51,7 @@ def main() -> None:
     stream = os.getenv("TASK_STREAM", "pepapage:tasks")
     group = os.getenv("CONSUMER_GROUP", "book-workers")
     consumer = os.getenv("CONSUMER_NAME", "worker-1")
-    r = redis.Redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"), decode_responses=True,
-                             socket_timeout=SOCKET_TIMEOUT)
+    r = redis.Redis.from_url(redis_url(), decode_responses=True, socket_timeout=SOCKET_TIMEOUT)
     server = ServerClient(os.getenv("SERVER_BASE_URL", "http://localhost:8080"), os.getenv("WORKER_TOKEN", ""))
 
     try:

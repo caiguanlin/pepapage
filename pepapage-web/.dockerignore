@@ -1,0 +1,10 @@
+# 构建上下文卫生：镜像构建只需 package*.json、index.html、tsconfig.json、vite.config.ts、src/
+node_modules/
+dist/
+.git/
+Dockerfile
+.dockerignore
+*.md
+.env
+.env.*
+tsconfig.tsbuildinfo

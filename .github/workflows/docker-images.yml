@@ -1,0 +1,119 @@
+name: Docker images
+
+on:
+  pull_request:
+  push:
+    branches: [main, build/docker-production]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  validate-compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Validate production configuration with test values
+        env:
+          IMAGE_TAG: validation-only
+          MYSQL_ROOT_PASSWORD: validation-only-root
+          DB_PASSWORD: validation-only-db
+          REDIS_PASSWORD: validation-only-redis
+          JWT_SECRET: validation-only-secret-at-least-32-bytes
+          WORKER_TOKEN: validation-only-worker
+          OSS_ENDPOINT: https://oss-cn-hangzhou.aliyuncs.com
+          OSS_BUCKET: validation-only
+          OSS_ACCESS_KEY_ID: validation-only
+          OSS_ACCESS_KEY_SECRET: validation-only
+        run: docker compose config --quiet
+
+  test-images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [web, server, worker]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build and run image build-time tests
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ./pepapage-${{ matrix.service }}
+          platforms: linux/amd64
+          load: true
+          tags: pepapage-${{ matrix.service }}:ci
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+      - name: Check Nginx configuration
+        if: matrix.service == 'web'
+        run: docker run --rm --add-host server:127.0.0.1 --entrypoint nginx pepapage-web:ci -t
+      - name: Check Java runtime
+        if: matrix.service == 'server'
+        run: docker run --rm --network none --entrypoint java pepapage-server:ci -version
+      - name: Test real OCR, TTS, ASR and audio encoding without network
+        if: matrix.service == 'worker'
+        run: docker run --rm --network none --entrypoint python pepapage-worker:ci -m tools.container_smoke
+
+  publish:
+    needs: [validate-compose, test-images]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [web, server, worker]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Select registry image name
+        id: image
+        env:
+          OWNER: ${{ github.repository_owner }}
+          SERVICE: ${{ matrix.service }}
+        run: printf 'name=ghcr.io/%s/pepapage-%s\n' "${OWNER,,}" "$SERVICE" >> "$GITHUB_OUTPUT"
+      - name: Authenticate to GHCR
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Generate immutable and release tags
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ steps.image.outputs.name }}
+          flavor: latest=false
+          tags: |
+            type=sha,format=long,prefix=sha-
+            type=semver,pattern={{version}}
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
+      - name: Publish tested image
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ./pepapage-${{ matrix.service }}
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+          provenance: mode=min
+          sbom: true
+      - name: Record published digest
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: printf '%s@%s\n' "$IMAGE" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"

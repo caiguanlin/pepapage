@@ -1,0 +1,15 @@
+# 构建上下文卫生：镜像构建只需要 pom.xml 与 src/
+target/
+docs/
+sql/
+.git/
+.idea/
+*.iml
+*.log
+.env
+.env.*
+# 本地私密配置：严禁进入构建上下文，更严禁进入产物 jar
+src/main/resources/application-local.yml
+src/main/resources/application-local.yml.example
+Dockerfile
+.dockerignore

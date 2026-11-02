@@ -24,8 +24,17 @@ def _model():
     if name not in _MODELS:
         from faster_whisper import WhisperModel
 
+        # WHISPER_CPU_THREADS 可选：设置时才传正整数（非法/0 回退 4），未设置时保持原默认参数不传
+        kwargs: dict[str, Any] = {}
+        raw = (os.getenv("WHISPER_CPU_THREADS") or "").strip()
+        if raw:
+            try:
+                threads = int(raw)
+            except ValueError:
+                threads = 4
+            kwargs["cpu_threads"] = threads if threads > 0 else 4
         _MODELS[name] = WhisperModel(name, device=os.getenv("WHISPER_DEVICE", "cpu"),
-                                     compute_type=os.getenv("WHISPER_COMPUTE", "int8"))
+                                     compute_type=os.getenv("WHISPER_COMPUTE", "int8"), **kwargs)
     return _MODELS[name]
 
 

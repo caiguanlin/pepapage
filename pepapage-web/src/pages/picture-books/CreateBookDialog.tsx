@@ -329,6 +329,18 @@ export default function CreateBookDialog({ open, folderId, onClose, onCreated }:
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     disabled={busy}
+                    onClick={() => setModel('local')}
+                    className={`rounded-lg border p-2 text-left text-xs ${
+                      model === 'local' ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1 font-bold text-slate-700">
+                      <Cpu size={14} /> 本地模型
+                    </div>
+                    <div className="mt-1 text-slate-500">离线运行 · 免费</div>
+                  </button>
+                  <button
+                    disabled={busy}
                     onClick={() => setModel('cloud')}
                     className={`rounded-lg border p-2 text-left text-xs ${
                       model === 'cloud' ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200'
@@ -340,18 +352,6 @@ export default function CreateBookDialog({ open, folderId, onClose, onCreated }:
                     </div>
                     <div className="mt-1 text-slate-500">句子级时间戳</div>
                     <div className="mt-0.5 text-slate-400">{estCost ? `预计消耗 ${estCost} 积分` : '20 积分 / 60 秒'}</div>
-                  </button>
-                  <button
-                    disabled={busy}
-                    onClick={() => setModel('local')}
-                    className={`rounded-lg border p-2 text-left text-xs ${
-                      model === 'local' ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200'
-                    }`}
-                  >
-                    <div className="flex items-center gap-1 font-bold text-slate-700">
-                      <Cpu size={14} /> 本地模型
-                    </div>
-                    <div className="mt-1 text-slate-500">离线运行 · 免费</div>
                   </button>
                 </div>
                 {model === 'local' && (

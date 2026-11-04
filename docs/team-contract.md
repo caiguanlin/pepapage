@@ -1,4 +1,4 @@
-# 绘本源复刻：团队接口契约（Lead 维护）
+# 阅芽绘本平台：团队接口契约（Lead 维护）
 
 所有成员按本文对接。需要改契约时先发消息给 lead，不要各自发明。规格依据：
 `PepaPage-绘本源-本期复刻任务书.md`、`analysis/picture-book-ui-spec.md`、`analysis/picture-book-data-spec.md`、`analysis/frontend-findings.md`。
@@ -31,7 +31,7 @@
 - **单音频对齐和阅读都读原始 `book-ocr.json`**，不读 `book-ocr-reviewed.json`：原版对齐 `rSe` 读的是原始 OCR，worker 单音频对齐、`/reader` 和 `/analysis` 的单音频分支都照此处理，避免句号与校对稿错位。后果是单音频校对后重对齐和阅读结果不变。这与数据规格第 6 节"阅读器读校对后 OCR"的说法不一致，是用户确认过的取舍。tts 和 multi 仍先读 `book-ocr-reviewed.json`，没有再读原始 OCR。
 - 行映射 `book-line-ocr-mapping.json` 的 `entries[].pageIndex` 按 0 起始写出（与页映射一致），这个起始值**未经原版样本验证**（原版样本里只有 -1）。
 
-## 2. 后端新增接口（pepapage-server 负责）
+## 2. 后端新增接口（yueya-server 负责）
 
 全部 `/api` 前缀、Bearer 鉴权、`Result{code,message,data}` 包装，校验项目归属。
 
@@ -51,17 +51,17 @@
 | POST | /book-courseware/export | body `{projectIds:[],folderIds:[]}`，服务端生成 `.nexusbookpkg`（zip：manifest.json + projects/<id>/文件），返回 `{url,fileName}`；仅 completed 项目 |
 | POST | /book-courseware/import | multipart file；按规格第 11 节恢复到 body `folderId`（query 参数），返回导入项目列表 |
 | GET | /book-projects/{id}/reader | 阅读器数据：`{project,pdfUrl,audio:{url,durations?}|null,pages:[{index,width,height}],cues:[{start,end,text,pageIndex,box?,sentenceIndex?}]}`，single 用 alignment+ocr 生成；multi/tts 若无 reader-merged.wav 则返回 `clips:[{url,pageIndex,box,start?,end?}]` 列表由前端顺序播放 |
-| GET | /book-projects/{id}/analysis | 解析详情，解析详情弹窗与编辑器右栏共用：`{audioMode,pdfUrl,audioUrl,pages,sentences,blocks,lines,counts}`，字段见 `pepapage-web/src/api/editorTypes.ts` 的 `BookAnalysis`，页码 1 起始，缺省值显式为 null。OCR：single 读原始，multi/tts 先读校对稿。`audioUrl` 仅 single（优先 audio.wav，其次 audioFileKey）。sentences 的时间来自 alignment，未匹配为 -1。lines 由 subtitles.lrc 解析，合并按行的词时间；行映射命中句为 `exact`（page = pageIndex+1，pageIndex 为 -1 时取句子的 pageIndex），否则页映射有该行为 `heuristic`（page = 映射值+1），都没有为 `none`。blocks：single 所属句 start≥0 为 `matched` 并继承句子时间；tts 在 book-audio-mapping 里有该句为 `tts` 并带签名 `audioUrl`；其余为 `unmatched`，multi 一律 `unmatched`。`counts.matched`：single 取 alignment.matchedCount（没有就统计 start≥0 的句数），tts 取有 fileName 的配音句数，multi 为 0。blocks/sentences 原样透传 book-ocr.json 的版面区域类型 `regionType`（值集见原版 Sqe，如 `doc_title`/`text`），OCR 没有时 blocks 显式 null、sentences 省略该字段，解析详情弹窗据此按相邻区域分组并显示组标题 |
+| GET | /book-projects/{id}/analysis | 解析详情，解析详情弹窗与编辑器右栏共用：`{audioMode,pdfUrl,audioUrl,pages,sentences,blocks,lines,counts}`，字段见 `yueya-web/src/api/editorTypes.ts` 的 `BookAnalysis`，页码 1 起始，缺省值显式为 null。OCR：single 读原始，multi/tts 先读校对稿。`audioUrl` 仅 single（优先 audio.wav，其次 audioFileKey）。sentences 的时间来自 alignment，未匹配为 -1。lines 由 subtitles.lrc 解析，合并按行的词时间；行映射命中句为 `exact`（page = pageIndex+1，pageIndex 为 -1 时取句子的 pageIndex），否则页映射有该行为 `heuristic`（page = 映射值+1），都没有为 `none`。blocks：single 所属句 start≥0 为 `matched` 并继承句子时间；tts 在 book-audio-mapping 里有该句为 `tts` 并带签名 `audioUrl`；其余为 `unmatched`，multi 一律 `unmatched`。`counts.matched`：single 取 alignment.matchedCount（没有就统计 start≥0 的句数），tts 取有 fileName 的配音句数，multi 为 0。blocks/sentences 原样透传 book-ocr.json 的版面区域类型 `regionType`（值集见原版 Sqe，如 `doc_title`/`text`），OCR 没有时 blocks 显式 null、sentences 省略该字段，解析详情弹窗据此按相邻区域分组并显示组标题 |
 
 ProjectStatus 增加 `awaiting_review`? —— 不增加。tts 等待校对的判定：`audioMode==tts && status==processing && ocrConfirmed==false && steps[0].status==completed`。前端据此显示“待校对”。
 
-## 3. Worker 任务（pepapage-worker 负责）
+## 3. Worker 任务（yueya-worker 负责）
 
 Redis Stream 消息 `{taskId, taskType}`；taskType：`book_full`、`book_realign`、`book_tts`、`book_export`。worker 直接用 oss2 读写项目文件（配置同 server，写在 worker/.env）。进度回调用现有 `/internal/tasks/{taskId}/progress`；导出任务回调 `/internal/exports/{exportId}/progress`（server 新增，字段 status/progress/error/fileName）。`/internal/tasks/{taskId}` 详情增加 `ossPrefix`。
 
 处理要求：不伪造成功；真实 PDF 渲染（pymupdf）、真实 OCR（rapidocr-onnxruntime）、音频转换（PyAV 或 imageio-ffmpeg 自带 ffmpeg）、ASR（faster-whisper，模型可配）、对齐、TTS（KittenTTS 0.8 micro ONNX 模型，目录由 `KITTEN_MODEL_DIR` 指定，8 个英文声线，输出 24 kHz 16 位单声道 WAV；缺模型或音素库时报错，不回退到 SAPI），点读 ZIP/PDF 导出（PyMuPDF 生成内容 PDF + 码点层，pydub/av 剪辑 mp3）。
 
-## 4. 前端路由（pepapage-web）
+## 4. 前端路由（yueya-web）
 
 | 路由 | 负责人 | 内容 |
 |---|---|---|
@@ -69,7 +69,7 @@ Redis Stream 消息 `{taskId, taskType}`；taskType：`book_full`、`book_realig
 | /animations | web-workbench | 占位页 |
 | /picture-books/:id/review | web-editor | OCR 校对（tts 待校对、任意模式校对后重对齐） |
 | /picture-books/:id/editor | web-editor | 原书辅码编辑器（区域、音轨、试听、入口码、导出设置、导出） |
-| /reader/:id | web-editor | 共享阅读器，返回绘本源 |
+| /reader/:id | web-editor | 共享阅读器，返回绘本 |
 | 卡片“详情” | web-workbench | 更多菜单中的解析详情弹窗 |
 
 创建表单的限制：创建表单不实现"同目录同名音频自动附带"。原版只允许选一个 PDF，再扫描其所在目录；浏览器拿不到目录内容。图片项目的标题也拿不到所在文件夹名，沿用 `titleFromImages`。

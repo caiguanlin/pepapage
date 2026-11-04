@@ -1,6 +1,6 @@
-# PepaPage 绘本源复刻：Agent 须知
+# 阅芽绘本工作台：Agent 须知
 
-项目说明和启动步骤见 `pepapage-server/docs/README.md`，接口契约见 `docs/team-contract.md`。
+项目说明和启动步骤见 `yueya-server/docs/README.md`，接口契约见 `docs/team-contract.md`。
 
 ## 本地测试账号
 

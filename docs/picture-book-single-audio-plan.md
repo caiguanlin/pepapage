@@ -1,4 +1,4 @@
-# 绘本源单音频闭环（附 TTS 修正）实施计划
+# 阅芽绘本单音频闭环（附 TTS 修正）实施计划
 
 本文是交给新会话执行的实施文档。先读第 1–5 节，再按第 6 节逐个 Task 实现。每个 Task 写明了改动文件、做法、测试、验证命令和提交信息。行号来自 2026-10-30 的代码，实现前请再确认一次。
 
@@ -9,11 +9,11 @@
 > 2026-10-31 更新：12 个 Task 已全部提交，验收记录见 `analysis/replica-acceptance-2026-10-31.md`。本节以下内容是开工前的状态，保留作记录。
 
 - HEAD 是 `9adab63 docs: 完善绘本源运行验证与 REA 分析证据`。三端代码都还没改，Task 1 尚未开始。
-- `pepapage-worker/.venv` 已建好：Python 3.12.6，只装了 pytest 9.2.0 和 numpy。现有 8 个测试全部通过：
-  `cd pepapage-worker; .\.venv\Scripts\python.exe -m pytest -q tests`
+- `yueya-worker/.venv` 已建好：Python 3.12.6，只装了 pytest 9.2.0 和 numpy。现有 8 个测试全部通过：
+  `cd yueya-worker; .\.venv\Scripts\python.exe -m pytest -q tests`
 - 本机工具链：Java 21.0.10、Maven 3.6.3（Spring Boot 3.4.5 要求的最低版本）、Node 22.23.4、npm 12.2.1。
-- `pepapage-server` 的 pom 里已有 `spring-boot-starter-test`，但没有 `src/test` 目录。
-- `pepapage-web` 下没有 `node_modules`，第一次构建前先执行 `npm ci`。前端没有测试框架，验证靠 `npm run build`。
+- `yueya-server` 的 pom 里已有 `spring-boot-starter-test`，但没有 `src/test` 目录。
+- `yueya-web` 下没有 `node_modules`，第一次构建前先执行 `npm ci`。前端没有测试框架，验证靠 `npm run build`。
 
 ## 2. 工作规则
 
@@ -238,7 +238,7 @@ flowchart LR
 
 ### Task 3：服务端测试骨架 + 阅读器接口修正
 
-改动文件：`pepapage-server/src/main/java/com/pepapage/project/ReaderService.java`；新建 `pepapage-server/src/test/java/com/pepapage/project/ReaderServiceTest.java`。
+改动文件：`yueya-server/src/main/java/com/yueya/project/ReaderService.java`；新建 `yueya-server/src/test/java/com/yueya/project/ReaderServiceTest.java`。
 
 测试骨架：
 
@@ -266,7 +266,7 @@ flowchart LR
 - tts 无映射时抛 tts 的错误文字。
 - tts 的条目乱序输入后，clips 按 sentenceIndex 排序。
 
-验证：`cd pepapage-server; mvn -q test`。第一次运行会下载依赖。
+验证：`cd yueya-server; mvn -q test`。第一次运行会下载依赖。
 
 提交：`fix(server): 阅读器单音频读原始 OCR，空播放序列报原版错误`
 
@@ -369,8 +369,8 @@ interface BookAnalysis {
 做法：
 
 1. **先验证**：
-   - 征得用户同意后，把原版的 `kitten-cache-micro` 目录复制到 `pepapage-worker/models/kitten-cache-micro/`。原版路径推测是 `D:/systemSoft/PepaPage/resources/models/kitten-cache-micro/`，因为 inventory 里这些路径和 `app.asar.unpacked/...` 同级。
-   - 在 `pepapage-worker/.gitignore` 加上 `models/`。
+   - 征得用户同意后，把原版的 `kitten-cache-micro` 目录复制到 `yueya-worker/models/kitten-cache-micro/`。原版路径推测是 `D:/systemSoft/PepaPage/resources/models/kitten-cache-micro/`，因为 inventory 里这些路径和 `app.asar.unpacked/...` 同级。
+   - 在 `yueya-worker/.gitignore` 加上 `models/`。
    - 写 `tools/kitten_check.py`，做四件事：读 `config.json`（可能含声线别名表）；列出 `voices.npz` 的键；打印 onnx 模型的输入名（`session.get_inputs()`）；合成一句英文并保存为 wav。
    - 安装：先试 `pip install --no-deps kittenml onnxruntime espeakng_loader phonemizer soundfile huggingface_hub`，确认 `kittenml` 能否加载本地目录。
 2. **选实现**：

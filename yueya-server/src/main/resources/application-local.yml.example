@@ -1,0 +1,21 @@
+# 复制为 application-local.yml 后填写，本文件可提交，application-local.yml 不要提交
+spring:
+  datasource:
+    # 远程 MySQL 走 TLS：sslMode=REQUIRED；本机 MySQL 可改回 useSSL=false&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://your-mysql-host:3306/yueya?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&sslMode=REQUIRED
+    username: your-mysql-user
+    password: your-mysql-password
+  data:
+    redis:
+      host: your-redis-host
+      port: 6379
+      username: default
+      password: your-redis-password
+      database: 0
+
+yueya:
+  oss:
+    endpoint: https://oss-cn-hangzhou.aliyuncs.com
+    bucket: your-bucket-name
+    access-key-id: your-ram-user-ak
+    access-key-secret: your-ram-user-sk

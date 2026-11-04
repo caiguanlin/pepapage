@@ -46,21 +46,21 @@ jobs:
       - name: Build and run image build-time tests
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
-          context: ./pepapage-${{ matrix.service }}
+          context: ./yueya-${{ matrix.service }}
           platforms: linux/amd64
           load: true
-          tags: pepapage-${{ matrix.service }}:ci
+          tags: yueya-${{ matrix.service }}:ci
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
       - name: Check Nginx configuration
         if: matrix.service == 'web'
-        run: docker run --rm --add-host server:127.0.0.1 --entrypoint nginx pepapage-web:ci -t
+        run: docker run --rm --add-host server:127.0.0.1 --entrypoint nginx yueya-web:ci -t
       - name: Check Java runtime
         if: matrix.service == 'server'
-        run: docker run --rm --network none --entrypoint java pepapage-server:ci -version
+        run: docker run --rm --network none --entrypoint java yueya-server:ci -version
       - name: Test real OCR, TTS, ASR and audio encoding without network
         if: matrix.service == 'worker'
-        run: docker run --rm --network none --entrypoint python pepapage-worker:ci -m tools.container_smoke
+        run: docker run --rm --network none --entrypoint python yueya-worker:ci -m tools.container_smoke
 
   publish:
     needs: [validate-compose, test-images]
@@ -82,7 +82,7 @@ jobs:
         env:
           OWNER: ${{ github.repository_owner }}
           SERVICE: ${{ matrix.service }}
-        run: printf 'name=ghcr.io/%s/pepapage-%s\n' "${OWNER,,}" "$SERVICE" >> "$GITHUB_OUTPUT"
+        run: printf 'name=ghcr.io/%s/yueya-%s\n' "${OWNER,,}" "$SERVICE" >> "$GITHUB_OUTPUT"
       - name: Authenticate to GHCR
         uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
@@ -103,7 +103,7 @@ jobs:
         id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
-          context: ./pepapage-${{ matrix.service }}
+          context: ./yueya-${{ matrix.service }}
           platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}

@@ -1,4 +1,4 @@
-name: pepapage
+name: yueya
 
 x-logging: &logging
   driver: json-file
@@ -14,9 +14,9 @@ x-oss: &oss
 
 services:
   web:
-    image: ${IMAGE_NAMESPACE:-ghcr.io/caiguanlin}/pepapage-web:${IMAGE_TAG:?Set an immutable IMAGE_TAG}
+    image: ${IMAGE_NAMESPACE:-ghcr.io/caiguanlin}/yueya-web:${IMAGE_TAG:?Set an immutable IMAGE_TAG}
     build:
-      context: ./pepapage-web
+      context: ./yueya-web
     ports:
       - "${WEB_BIND_IP:-127.0.0.1}:${WEB_PORT:-8088}:8080"
     depends_on:
@@ -27,15 +27,15 @@ services:
     logging: *logging
 
   server:
-    image: ${IMAGE_NAMESPACE:-ghcr.io/caiguanlin}/pepapage-server:${IMAGE_TAG:?Set an immutable IMAGE_TAG}
+    image: ${IMAGE_NAMESPACE:-ghcr.io/caiguanlin}/yueya-server:${IMAGE_TAG:?Set an immutable IMAGE_TAG}
     build:
-      context: ./pepapage-server
+      context: ./yueya-server
     environment:
       <<: *oss
       SPRING_PROFILES_ACTIVE: prod
       TZ: Asia/Shanghai
-      DB_URL: jdbc:mysql://mysql:3306/pepapage?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&sslMode=DISABLED&allowPublicKeyRetrieval=true
-      DB_USERNAME: pepapage
+      DB_URL: jdbc:mysql://mysql:3306/yueya?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&sslMode=DISABLED&allowPublicKeyRetrieval=true
+      DB_USERNAME: yueya
       DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
       REDIS_HOST: redis
       REDIS_PORT: "6379"
@@ -54,9 +54,9 @@ services:
     logging: *logging
 
   worker:
-    image: ${IMAGE_NAMESPACE:-ghcr.io/caiguanlin}/pepapage-worker:${IMAGE_TAG:?Set an immutable IMAGE_TAG}
+    image: ${IMAGE_NAMESPACE:-ghcr.io/caiguanlin}/yueya-worker:${IMAGE_TAG:?Set an immutable IMAGE_TAG}
     build:
-      context: ./pepapage-worker
+      context: ./yueya-worker
     environment:
       <<: *oss
       TZ: Asia/Shanghai
@@ -65,7 +65,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: "6379"
       REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD}
-      TASK_STREAM: pepapage:tasks
+      TASK_STREAM: yueya:tasks
       CONSUMER_GROUP: book-workers
       CONSUMER_NAME: worker-1
       KITTEN_MODEL_DIR: /models/kitten-tts-micro
@@ -95,15 +95,15 @@ services:
     command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci", "--innodb-buffer-pool-size=256M"]
     environment:
       TZ: Asia/Shanghai
-      MYSQL_DATABASE: pepapage
-      MYSQL_USER: pepapage
+      MYSQL_DATABASE: yueya
+      MYSQL_USER: yueya
       MYSQL_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD}
     volumes:
       - mysql-data:/var/lib/mysql
-      - ./pepapage-server/sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./yueya-server/sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_PASSWORD\" mysql --protocol=TCP -h 127.0.0.1 -u\"$$MYSQL_USER\" -D pepapage -e 'SELECT 1 FROM process_task LIMIT 1' >/dev/null 2>&1"]
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_PASSWORD\" mysql --protocol=TCP -h 127.0.0.1 -u\"$$MYSQL_USER\" -D yueya -e 'SELECT 1 FROM process_task LIMIT 1' >/dev/null 2>&1"]
       interval: 10s
       timeout: 5s
       retries: 20

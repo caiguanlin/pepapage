@@ -1,4 +1,4 @@
-# PepaPage 生产部署（Docker Compose / GHCR 镜像）
+# 阅芽 生产部署（Docker Compose / GHCR 镜像）
 
 本文是生产环境的部署与运维规程。配套交付物：
 
@@ -44,13 +44,13 @@
 
 | 服务 | 镜像 | 端口 | 内存 | 说明 |
 |---|---|---|---|---|
-| web | `${IMAGE_NAMESPACE}/pepapage-web:${IMAGE_TAG}` | 容器 8080 → 主机默认 `127.0.0.1:8088` | 128m | 唯一对外入口：静态前端 + `/api` 反代到 server |
-| server | `${IMAGE_NAMESPACE}/pepapage-server:${IMAGE_TAG}` | 8080，仅内网 | 1g | Spring Boot API |
-| worker | `${IMAGE_NAMESPACE}/pepapage-worker:${IMAGE_TAG}` | 无 | 3g / 2 CPU | 消费 Redis Stream 的制作管线（CPU 版） |
-| mysql | `mysql:8.4` | 仅内网 | 1g | 命名卷 `pepapage_mysql-data`；首次启动用 `pepapage-server/sql/schema.sql` 初始化 |
-| redis | `redis:7.4-alpine` | 仅内网 | 256m | 命名卷 `pepapage_redis-data`；AOF（everysec）+ `maxmemory 192mb noeviction` |
+| web | `${IMAGE_NAMESPACE}/yueya-web:${IMAGE_TAG}` | 容器 8080 → 主机默认 `127.0.0.1:8088` | 128m | 唯一对外入口：静态前端 + `/api` 反代到 server |
+| server | `${IMAGE_NAMESPACE}/yueya-server:${IMAGE_TAG}` | 8080，仅内网 | 1g | Spring Boot API |
+| worker | `${IMAGE_NAMESPACE}/yueya-worker:${IMAGE_TAG}` | 无 | 3g / 2 CPU | 消费 Redis Stream 的制作管线（CPU 版） |
+| mysql | `mysql:8.4` | 仅内网 | 1g | 命名卷 `yueya_mysql-data`；首次启动用 `yueya-server/sql/schema.sql` 初始化 |
+| redis | `redis:7.4-alpine` | 仅内网 | 256m | 命名卷 `yueya_redis-data`；AOF（everysec）+ `maxmemory 192mb noeviction` |
 
-compose 项目名 `pepapage`。`IMAGE_NAMESPACE=ghcr.io/caiguanlin`，`IMAGE_TAG=sha-<完整 40 位 commit sha>`（以 commit SHA 命名的版本 tag，便于定位与回滚，禁止 `latest` 等可漂移 tag；tag 本身不保证内容不可变，需要内容级固定可改用 digest `镜像@sha256:<digest>`）。日志统一 json-file，单文件 10m × 3 份轮转。
+compose 项目名 `yueya`。`IMAGE_NAMESPACE=ghcr.io/caiguanlin`，`IMAGE_TAG=sha-<完整 40 位 commit sha>`（以 commit SHA 命名的版本 tag，便于定位与回滚，禁止 `latest` 等可漂移 tag；tag 本身不保证内容不可变，需要内容级固定可改用 digest `镜像@sha256:<digest>`）。日志统一 json-file，单文件 10m × 3 份轮转。
 
 启动顺序由健康检查驱动：web 依赖 server 健康，server 依赖 mysql / redis 健康，worker 依赖 server / redis 健康；`up -d` 会按序拉起，mysql 健康检查会实际查询 `process_task` 表。
 
@@ -61,7 +61,7 @@ compose 项目名 `pepapage`。`IMAGE_NAMESPACE=ghcr.io/caiguanlin`，`IMAGE_TAG
                                 |--内网--> server:8080 (/api)
                                              |--内网--> mysql / redis
                                              |--> 阿里 OSS（签名 URL、PostPolicy、小文件读写）
-worker --内网--> redis（消费任务流 pepapage:tasks）
+worker --内网--> redis（消费任务流 yueya:tasks）
 worker --内网--> server:8080（回调 /internal/tasks、/internal/exports）
 worker |--> 阿里 OSS（用同一套 AK 直读直写项目文件）
 ```
@@ -71,14 +71,14 @@ worker |--> 阿里 OSS（用同一套 AK 直读直写项目文件）
 - 只有 web 对外。server 的 `/internal/**` 仅供 worker 回调（`X-Worker-Token` 鉴权），**任何一层反代都不得把 `/internal` 暴露到公网**。
 - web 容器内反向代理 `/api` 到 server（同源部署，server 不配 CORS）；web 的反代规则里不允许出现 `/internal`。
 - OSS 桶保持私有，下载一律走后端签发的签名 URL。
-- 数据库与 Redis 数据分别落在命名卷 `pepapage_mysql-data`、`pepapage_redis-data`。
+- 数据库与 Redis 数据分别落在命名卷 `yueya_mysql-data`、`yueya_redis-data`。
 
 ### 2.1 主机反代（HTTPS）：域名、证书与 Nginx 配置示例
 
 对外 HTTPS 由**宿主机上的网关**承担：目标机 80 端口已有服务监听，把下面的 server 块加入现有 Nginx（或既有网关），并在启用 HTTPS 前确认 443 端口及防火墙规则。不要另起一个抢占 80 端口的 Nginx。准备事项：
 
-1. 域名：申请一个解析到本服务器的域名（A/AAAA 记录），下例用 `pepapage.example.com`。
-2. 证书：用 certbot 签发 Let's Encrypt 并配置自动续期（例如 `certbot certonly --webroot -w <现有站点根> -d pepapage.example.com`），或使用已有商业证书，落到固定路径。
+1. 域名：申请一个解析到本服务器的域名（A/AAAA 记录），下例用 `yueya.example.com`。
+2. 证书：用 certbot 签发 Let's Encrypt 并配置自动续期（例如 `certbot certonly --webroot -w <现有站点根> -d yueya.example.com`），或使用已有商业证书，落到固定路径。
 
 Nginx server 块示例：
 
@@ -86,10 +86,10 @@ Nginx server 块示例：
 server {
     listen 443 ssl;
     http2 on;                       # Nginx < 1.25 用旧写法：listen 443 ssl http2;
-    server_name pepapage.example.com;
+    server_name yueya.example.com;
 
-    ssl_certificate     /etc/letsencrypt/live/pepapage.example.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/pepapage.example.com/privkey.pem;
+    ssl_certificate     /etc/letsencrypt/live/yueya.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/yueya.example.com/privkey.pem;
 
     location / {
         proxy_pass http://127.0.0.1:8088;   # web 容器只绑回环地址，外网无法绕过 HTTPS 直连
@@ -104,7 +104,7 @@ server {
 
 server {
     listen 80;
-    server_name pepapage.example.com;
+    server_name yueya.example.com;
     return 301 https://$host$request_uri;
 }
 ```
@@ -115,7 +115,7 @@ server {
 
 ### 3.1 镜像拉取与 GHCR 登录（如为私有）
 
-镜像托管在 `ghcr.io/caiguanlin/pepapage-*`，包的可见性以 GHCR 实际设置为准。**如为私有**，部署机需要先登录：使用 classic Personal Access Token（勾选 **`read:packages`**，不要复用能写包或管仓库的高权限 token）：
+镜像托管在 `ghcr.io/caiguanlin/yueya-*`，包的可见性以 GHCR 实际设置为准。**如为私有**，部署机需要先登录：使用 classic Personal Access Token（勾选 **`read:packages`**，不要复用能写包或管仓库的高权限 token）：
 
 ```bash
 docker login ghcr.io -u <GitHub用户名>
@@ -126,7 +126,7 @@ docker login ghcr.io -u <GitHub用户名>
 
 ### 3.2 准备配置
 
-在部署机上准备仓库工作区（至少 `compose.yaml`、`deploy/`、`pepapage-server/sql/schema.sql` 三样），然后：
+在部署机上准备仓库工作区（至少 `compose.yaml`、`deploy/`、`yueya-server/sql/schema.sql` 三样），然后：
 
 ```bash
 mkdir -p deploy
@@ -149,7 +149,7 @@ chmod 600 deploy/production.env
 
 可选项（有默认值，见 `production.env.example` 注释）：`WEB_BIND_IP` / `WEB_PORT`（默认 `127.0.0.1:8088`）、各内存限额与 `WORKER_CPUS` / `WORKER_THREADS`、`WHISPER_LANGUAGE`（默认空=自动检测语言；纯英文音频建议设 `en`）。
 
-由 compose 固定、不进 env 的值：`DB_USERNAME=pepapage`、`DB_URL` 指向内置 mysql、`TZ=Asia/Shanghai`、`SPRING_PROFILES_ACTIVE=prod`、`CONSUMER_NAME=worker-1`。
+由 compose 固定、不进 env 的值：`DB_USERNAME=yueya`、`DB_URL` 指向内置 mysql、`TZ=Asia/Shanghai`、`SPRING_PROFILES_ACTIVE=prod`、`CONSUMER_NAME=worker-1`。
 
 注意：
 
@@ -174,7 +174,7 @@ curl -s http://127.0.0.1:8088/api/health
 
 # 确认 schema 已初始化（应列出 sys_user / book_folder / book_project / process_task / book_export 五张表）
 docker compose --env-file deploy/production.env exec mysql \
-  sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -e "SHOW TABLES" pepapage'
+  sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -e "SHOW TABLES" yueya'
 
 # 首次任务前看一遍日志确认无报错
 docker compose --env-file deploy/production.env logs --tail=100 server worker
@@ -187,11 +187,11 @@ docker compose --env-file deploy/production.env logs --tail=100 server worker
 
 ## 4. Schema 初始化（仅首次）
 
-- 新建数据库的初始化由 compose 完成：`./pepapage-server/sql/schema.sql` 只读挂载到 MySQL 镜像的 `/docker-entrypoint-initdb.d/01-schema.sql`。**该脚本只在数据卷 `pepapage_mysql-data` 为空的首次启动时执行一次**，之后重启、升级都不会重跑。
-- 库 `pepapage`（utf8mb4_unicode_ci）与应用账号 `pepapage` 由 mysql 镜像按 `MYSQL_DATABASE` / `MYSQL_USER` / `MYSQL_PASSWORD` 自动创建。
+- 新建数据库的初始化由 compose 完成：`./yueya-server/sql/schema.sql` 只读挂载到 MySQL 镜像的 `/docker-entrypoint-initdb.d/01-schema.sql`。**该脚本只在数据卷 `yueya_mysql-data` 为空的首次启动时执行一次**，之后重启、升级都不会重跑。
+- 库 `yueya`（utf8mb4_unicode_ci）与应用账号 `yueya` 由 mysql 镜像按 `MYSQL_DATABASE` / `MYSQL_USER` / `MYSQL_PASSWORD` 自动创建。
 - 项目没有 Flyway/Liquibase 等迁移机制，`schema.sql` 是唯一 schema 来源（幂等 `CREATE TABLE IF NOT EXISTS`）。**版本升级若涉及表结构变更，需要人工在库上执行增量 SQL**——升级前先按第 6 节备份。
 - mysql 健康检查会查询 `process_task` 表：如果卡在 mysql 一直 `starting`/`unhealthy`，通常是 schema 未初始化，用 3.4 的 `SHOW TABLES` 排查。
-- 需要完全重置只能删除 `pepapage_mysql-data` 卷（**等于删除全部数据，生产禁用**），然后重新 `up -d` 触发一次初始化。
+- 需要完全重置只能删除 `yueya_mysql-data` 卷（**等于删除全部数据，生产禁用**），然后重新 `up -d` 触发一次初始化。
 
 ## 5. 日常运维
 
@@ -206,14 +206,14 @@ docker compose --env-file deploy/production.env down
 docker compose --env-file deploy/production.env up -d
 ```
 
-- `down` **不删**命名卷；`down -v` 会连 `pepapage_mysql-data`、`pepapage_redis-data` 一起删除（数据库、Redis 全部清空），生产环境禁止使用。
+- `down` **不删**命名卷；`down -v` 会连 `yueya_mysql-data`、`yueya_redis-data` 一起删除（数据库、Redis 全部清空），生产环境禁止使用。
 - 日志有轮转上限（单容器 10m × 3），不会撑爆磁盘；排查问题优先看 `logs`。
-- Redis 已开启 AOF（`appendfsync everysec`）：正常重启会保留用户会话与队列中已投递的任务消息；但 everysec 语义下，进程崩溃/断电最多回退约 1 秒的写入，**不能视为绝对零丢失**。全量丢失只发生在**删除/丢失 `pepapage_redis-data` 卷**时：用户需重新登录，进行中任务中断（对应项目卡在「制作中」，需人工处理后重试）。OSS 与数据库中的正式数据不受影响。
+- Redis 已开启 AOF（`appendfsync everysec`）：正常重启会保留用户会话与队列中已投递的任务消息；但 everysec 语义下，进程崩溃/断电最多回退约 1 秒的写入，**不能视为绝对零丢失**。全量丢失只发生在**删除/丢失 `yueya_redis-data` 卷**时：用户需重新登录，进行中任务中断（对应项目卡在「制作中」，需人工处理后重试）。OSS 与数据库中的正式数据不受影响。
 - worker 收到 SIGTERM 会把当前任务处理完再退出（`stop_grace_period: 30m`），`down` 时请耐心等待。
 
 ### 5.1 Redis Stream 容量备注（已知问题，本期不重构，只监控不清理）
 
-- 任务流 `pepapage:tasks` 只 `XADD` / `XACK`、**从不裁剪**，长期运行会持续增长；AOF 也随之增长。
+- 任务流 `yueya:tasks` 只 `XADD` / `XACK`、**从不裁剪**，长期运行会持续增长；AOF 也随之增长。
 - redis 按 `maxmemory 192mb` + `noeviction` 运行：**写满后新写入直接报错**——server 投递任务失败、登录（写会话）失败，都不会自动淘汰旧数据。
 - 本期不做自动清理，也**不提供手动裁剪指令**：未投递（lag）与已投递未确认（pending）的消息可能位于流的任意历史区间，「当前没有任务在跑」不代表没有 pending/lag，盲目按长度裁剪会删掉尚未处理的任务。容量逼近上限时必须：先按第 6 节做完整 Redis 备份 → 核对**所有消费组**的 pending/lag（下方命令）→ 另行设计并确认安全的清理方案后才动手。本期靠监控兜底。
 
@@ -223,12 +223,12 @@ docker compose --env-file deploy/production.env exec redis \
   sh -c 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli info memory | grep -E "used_memory_human|maxmemory_human|maxmemory_policy"'
 # 监控：任务流长度
 docker compose --env-file deploy/production.env exec redis \
-  sh -c 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli xlen pepapage:tasks'
+  sh -c 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli xlen yueya:tasks'
 # 监控：消费组 pending 与 lag（任何清理动作前必须核对此处；lag 为 -1 表示 Redis 无法估算，需再用 xpending 细查）
 docker compose --env-file deploy/production.env exec redis \
-  sh -c 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli xinfo groups pepapage:tasks'
+  sh -c 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli xinfo groups yueya:tasks'
 docker compose --env-file deploy/production.env exec redis \
-  sh -c 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli xpending pepapage:tasks book-workers'
+  sh -c 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli xpending yueya:tasks book-workers'
 ```
 
 redis-data 卷靠 AOF 保数据；队列里未完成任务的消息是有价值的状态，可靠的 Redis 备份方法见第 6 节维护窗口流程。容量监控是必须项。
@@ -241,7 +241,7 @@ redis-data 卷靠 AOF 保数据；队列里未完成任务的消息是有价值�
 
 ```bash
 docker compose --env-file deploy/production.env exec -T mysql \
-  sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysqldump -uroot --single-transaction pepapage' > pepapage-$(date +%F).sql
+  sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysqldump -uroot --single-transaction yueya' > yueya-$(date +%F).sql
 ```
 
 全量一致备份（维护窗口内执行）：`--single-transaction` 只保证 dump 自身一致，不覆盖与 Redis 队列状态的一致性。要得到「数据库 + 队列」一致快照，先停所有写入方，再分别备份：
@@ -256,7 +256,7 @@ docker compose --env-file deploy/production.env stop server
 
 # 2) 备份 MySQL
 docker compose --env-file deploy/production.env exec -T mysql \
-  sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysqldump -uroot --single-transaction pepapage' > pepapage-$(date +%F).sql
+  sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysqldump -uroot --single-transaction yueya' > yueya-$(date +%F).sql
 
 # 3) 停 redis 让 AOF 完整落盘，整目录拷出（含 appendonlydir/）
 docker compose --env-file deploy/production.env stop redis
@@ -270,9 +270,9 @@ docker compose --env-file deploy/production.env up -d
 恢复：
 
 ```bash
-# MySQL：恢复到目标库（库 pepapage 需已存在）
+# MySQL：恢复到目标库（库 yueya 需已存在）
 docker compose --env-file deploy/production.env exec -T mysql \
-  sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot pepapage' < pepapage-2026-11-02.sql
+  sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot yueya' < yueya-2026-11-02.sql
 
 ```
 
@@ -281,19 +281,19 @@ Redis 恢复到备份点属于灾难恢复操作，**按以下概念流程执行
 ```text
 # 1) 停全部写入方，顺序与备份相同：web → worker（等收尾）→ server → redis
 # 2) 在一个全新的空目录/空卷里还原整份备份，并校正属主为 redis 镜像的运行用户（uid 999），例如：
-#      docker volume create pepapage-redis-restore
+#      docker volume create yueya-redis-restore
 #      docker run --rm \
-#        -v pepapage-redis-restore:/target \
+#        -v yueya-redis-restore:/target \
 #        -v "$PWD/redis-data-2026-11-02":/backup:ro \
 #        alpine sh -c 'cp -a /backup/. /target/ && chown -R 999:999 /target'
-# 3) 临时用该新卷启动 redis 验证（PING、XLEN pepapage:tasks、抽查数据），确认无误后
+# 3) 临时用该新卷启动 redis 验证（PING、XLEN yueya:tasks、抽查数据），确认无误后
 #    把 compose 中 redis 服务的数据卷切换为该新卷（改 compose.yaml 或用 override），旧卷保留待查
 # 4) up -d 恢复整栈并核对业务
 ```
 
 命令写法说明（为什么是单引号）：外层单引号由**宿主机 shell** 消费，保证 `$MYSQL_ROOT_PASSWORD` 不在宿主机被展开（值不进宿主机命令行与历史）；引号内的字符串原样传入容器，由容器内 `sh` 用 compose 注入的环境变量展开。密码走 `MYSQL_PWD` 环境变量而不是 `-p` 命令行参数（不进容器进程列表，也无 mysqldump 的 stderr 告警）。走 stdin/stdout 的命令加 `-T` 关闭伪终端，避免 TTY 换行转换破坏流内容。
 
-- 备份后核对文件非空：`ls -lh pepapage-*.sql`；Redis 备份目录里应能看到 `appendonlydir/`。
+- 备份后核对文件非空：`ls -lh yueya-*.sql`；Redis 备份目录里应能看到 `appendonlydir/`。
 
 ## 7. 版本更新与回滚
 
@@ -334,7 +334,7 @@ docker compose --env-file deploy/production.env up -d
 
 ## 10. CI/CD：只发镜像，不自动部署
 
-- GitHub Actions 只负责构建 `pepapage-web` / `pepapage-server` / `pepapage-worker` 三个镜像并推送到 GHCR，tag 为 `sha-<完整 40 位 commit sha>`。
+- GitHub Actions 只负责构建 `yueya-web` / `yueya-server` / `yueya-worker` 三个镜像并推送到 GHCR，tag 为 `sha-<完整 40 位 commit sha>`。
 - **Actions 不会自动部署到任何服务器**。服务器上的更新永远是人工操作：SSH 登录 → 确认/修改 `deploy/production.env` 里的 `IMAGE_TAG` → `pull` → `up -d`（见第 7 节）。
 - 回滚靠 SHA 版本 tag 定位历史版本（tag 指向的内容可被覆盖，严格不可变需 digest 固定，见第 2 节）；任何情况下不使用 `latest` 等可漂移 tag。
 
@@ -354,4 +354,4 @@ worker 镜像内置以下第三方模型，出处与上游许可信息须随分�
 | KittenTTS 0.8 micro（ONNX） | Hugging Face `KittenML/kitten-tts-micro-0.8`（`config.json`、`kitten_tts_micro_v0_8.onnx`、`voices.npz`） | 英文 TTS（8 声线，24kHz 单声道 WAV） |
 | faster-whisper 模型（base） | Hugging Face `Systran/faster-whisper-base`（CTranslate2 转换，源自 OpenAI Whisper） | 语音识别（SRT 字幕 + 词级时间） |
 
-本地校验模型完整性可用 `pepapage-worker/tools/kitten_check.py`。运行时依赖（phonemizer / espeakng_loader 自带 espeak-ng 等）见 `pepapage-worker/requirements.txt` 及其中注释。
+本地校验模型完整性可用 `yueya-worker/tools/kitten_check.py`。运行时依赖（phonemizer / espeakng_loader 自带 espeak-ng 等）见 `yueya-worker/requirements.txt` 及其中注释。
